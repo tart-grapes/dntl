@@ -1,0 +1,16 @@
+The "Hands Off My Code" License (HOMC)
+
+Version 1.1, October 2024
+
+Copyright (c) 2024, S. John Lavery. All rights reserved.
+
+Permission Denied: This code is strictly mine. You are free to look at it, scratch your head, and even admire it from afar, but you may not copy, modify, or distribute it without my explicit permission. Especially not you, IBM, Google, or any other entity with deep pockets or an insatiable appetite for IP.
+
+No Warranty: This code is provided "as is," with no guarantees of any kind. It may run perfectly, or it may summon a black hole. Either way, if something goes wrong, you’re on your own. I accept no liability for any consequences, large or small.
+
+No Corporate Shenanigans: If you're a massive tech company (yes, I'm looking at you, IBM and Google), know this: you cannot use this code for anything, at all, ever, without a signed contract from me. No loopholes, no exceptions.
+
+Feedback Welcome, But Not Obligated: If you have thoughts, feedback, or praise, feel free to send it my way. I'll consider it. But don’t expect me to act on it unless it comes with cash or gold bars.
+
+Governing Law: This license is governed by the laws of the state of California. Any disputes will be settled in a court of my choosing, probably one near me so I don't have to travel.
+
