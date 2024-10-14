@@ -12,6 +12,9 @@ You may notice the non-core instances are slightly less than full rank. This is 
 	t=Ax mod q;\
 has more than one valid x solution. The goal is to find the right solution for the outer instances via some inversion technique and get to the core ISIS instance. From there, extract the short secret!
 
+# Warning
+Don't use this for anything serious, obviously, it's Python. But I am curious to see where it breaks.
+
 
 
 Send feedback to hel0hel0@hotmail.com
