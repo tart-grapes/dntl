@@ -1,8 +1,8 @@
 # dntl
 
-dntl-dsa-nat.py -c 1 # Level 1, 80B Public Keys and Signatures\
-dntl-dsa-nat.py -c 3 # Level 3, 152B Public Keys and Signatures\
-dntl-dsa-nat.py -c 5 # Level 5, 288B Public Keys and Signatures
+python3 dntl-dsa-nat.py -c 1 # Level 1, 80B Public Keys and Signatures\
+python3 dntl-dsa-nat.py -c 3 # Level 3, 152B Public Keys and Signatures\
+python3 dntl-dsa-nat.py -c 5 # Level 5, 288B Public Keys and Signatures
 
 # Overview
 
