@@ -4,7 +4,7 @@
 #define N 64
 
 // Declaration from gaussian_sampler.c
-void gaussian_sample(const uint8_t seed[32], double output[N], double mean, double stddev);
+void gaussian_sample(const uint8_t seed[32], int output[N], double mean, double stddev);
 
 int main(void) {
     // Example 256-bit seed
@@ -15,7 +15,7 @@ int main(void) {
         0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF
     };
 
-    double output[N];
+    int output[N];
 
     // Generate samples with mean=0.0, stddev=1.0 (standard normal distribution)
     gaussian_sample(seed, output, 0.0, 1.0);
@@ -23,14 +23,14 @@ int main(void) {
     // Print first 10 values and statistics
     printf("First 10 samples:\n");
     for (int i = 0; i < 10; i++) {
-        printf("  output[%d] = %f\n", i, output[i]);
+        printf("  output[%d] = %d\n", i, output[i]);
     }
 
     // Calculate mean and variance of generated samples
     double sum = 0.0, sum_sq = 0.0;
     for (int i = 0; i < N; i++) {
-        sum += output[i];
-        sum_sq += output[i] * output[i];
+        sum += (double)output[i];
+        sum_sq += (double)output[i] * (double)output[i];
     }
     double sample_mean = sum / N;
     double sample_variance = (sum_sq / N) - (sample_mean * sample_mean);
