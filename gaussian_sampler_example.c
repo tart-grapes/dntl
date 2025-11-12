@@ -4,7 +4,7 @@
 #define N 64
 
 // Declaration from gaussian_sampler.c
-void gaussian_sample(const uint8_t seed[32], int output[N], double mean, double stddev);
+void gaussian_sample(const uint8_t seed[32], int output[N], double mean, double stddev, double bound_sigma);
 
 int main(void) {
     // Example 256-bit seed
@@ -18,7 +18,8 @@ int main(void) {
     int output[N];
 
     // Generate samples with mean=0.0, stddev=1.0 (standard normal distribution)
-    gaussian_sample(seed, output, 0.0, 1.0);
+    // Using tail clipping at 6σ for cryptographic applications
+    gaussian_sample(seed, output, 0.0, 1.0, 6.0);
 
     // Print first 10 values and statistics
     printf("First 10 samples:\n");
