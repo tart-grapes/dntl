@@ -32,7 +32,7 @@ def calculate_entropy(arr):
 
 
 def calculate_norm(vector):
-    return np.linalg.norm(vector)
+    return int(np.linalg.norm(vector))
 
 
 # NOTE: Constant time lookup table replaces this in real implementations
