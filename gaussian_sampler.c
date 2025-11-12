@@ -14,17 +14,20 @@ static inline uint64_t rotl(uint64_t x, int k) {
 }
 
 /**
- * Fast and safe Gaussian distribution sampler
+ * Fast and safe Gaussian distribution sampler with tail clipping
  *
  * Generates N=64 values from a Gaussian (normal) distribution using a 256-bit seed.
  * Uses Box-Muller transform for Gaussian generation and xoshiro256** PRNG.
+ * Values outside [min_value, max_value] are clipped to prevent extreme outliers.
  *
  * @param seed      Pointer to 32-byte (256-bit) seed value
  * @param output    Pointer to array of at least N integers to store results
  * @param mean      Mean of the Gaussian distribution
  * @param stddev    Standard deviation of the Gaussian distribution
+ * @param min_value Minimum allowed value (inclusive) for tail clipping
+ * @param max_value Maximum allowed value (inclusive) for tail clipping
  */
-void gaussian_sample(const uint8_t seed[32], int output[N], double mean, double stddev) {
+void gaussian_sample(const uint8_t seed[32], int output[N], double mean, double stddev, int min_value, int max_value) {
     // Initialize PRNG state from 256-bit seed
     uint64_t state[4];
     memcpy(state, seed, 32);
@@ -74,9 +77,17 @@ void gaussian_sample(const uint8_t seed[32], int output[N], double mean, double 
         double z0 = mag * cos(2.0 * M_PI * u2) + mean;
         double z1 = mag * sin(2.0 * M_PI * u2) + mean;
 
-        output[i] = (int)round(z0);
+        // Round and clip to [min_value, max_value] to prevent tail outliers
+        int val0 = (int)round(z0);
+        if (val0 < min_value) val0 = min_value;
+        if (val0 > max_value) val0 = max_value;
+        output[i] = val0;
+
         if (i + 1 < N) {
-            output[i + 1] = (int)round(z1);
+            int val1 = (int)round(z1);
+            if (val1 < min_value) val1 = min_value;
+            if (val1 > max_value) val1 = max_value;
+            output[i + 1] = val1;
         }
     }
 }
