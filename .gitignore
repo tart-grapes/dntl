@@ -1,0 +1,20 @@
+# Compiled binaries
+gaussian_example
+*.o
+*.out
+*.exe
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
