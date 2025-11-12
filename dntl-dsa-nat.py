@@ -30,7 +30,7 @@ if args.c == 5:
     if X == 0:
         allowed_values = [1,2,3,4,5]
         max_norm = 100
-        max_mapped_norm = sqrt(N)
+        max_mapped_norm = int(sqrt(N))
     sigma = 1
 
 if args.c == 3:
@@ -50,7 +50,7 @@ if args.c == 3:
     if X == 0:
         allowed_values = [1,2,3,4,5]
         max_norm = 48
-        max_mapped_norm = sqrt(N)
+        max_mapped_norm = int(sqrt(N))
     sigma = 1.3
 
 
@@ -70,7 +70,7 @@ if args.c == 1:
     if X == 0:
         allowed_values = [1,2,3,4,5]
         max_norm = 24
-        max_mapped_norm = sqrt(N)
+        max_mapped_norm = int(sqrt(N))
     sigma = 1.3
 
 from libdntln import *
