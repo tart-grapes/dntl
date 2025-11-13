@@ -2,6 +2,7 @@
 gaussian_example
 test_constant_time
 test_ntt64
+generate_tables
 *.o
 *.out
 *.exe
