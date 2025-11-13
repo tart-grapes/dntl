@@ -1,5 +1,9 @@
 # Compiled binaries
 gaussian_example
+test_constant_time
+test_ntt64
+generate_tables
+rs_test
 *.o
 *.out
 *.exe
