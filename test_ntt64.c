@@ -35,25 +35,23 @@ void schoolbook_negacyclic_mul(uint32_t c[NTT_N],
         for (int j = 0; j < NTT_N; j++) {
             int idx = i + j;
 
-            // Compute product
+            // Compute product and reduce to prevent overflow
             uint64_t prod = (uint64_t)a[i] * (uint64_t)b[j];
+            uint32_t prod_mod = (uint32_t)(prod % q);
 
             if (idx < NTT_N) {
                 // Normal coefficient: add prod
-                uint64_t sum = (uint64_t)c[idx] + prod;
+                uint64_t sum = (uint64_t)c[idx] + (uint64_t)prod_mod;
                 c[idx] = (uint32_t)(sum % q);
             } else {
                 // Coefficient >= N: subtract prod (because x^N = -1)
                 idx -= NTT_N;
 
-                // c[idx] -= prod (mod q)
-                uint64_t val = (uint64_t)c[idx];
-                uint64_t prod_mod = prod % q;
-
-                if (val >= prod_mod) {
-                    c[idx] = (uint32_t)(val - prod_mod);
+                // c[idx] -= prod_mod (mod q)
+                if (c[idx] >= prod_mod) {
+                    c[idx] = c[idx] - prod_mod;
                 } else {
-                    c[idx] = (uint32_t)(q + val - prod_mod);
+                    c[idx] = q + c[idx] - prod_mod;
                 }
             }
         }

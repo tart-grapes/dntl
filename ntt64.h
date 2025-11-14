@@ -7,7 +7,7 @@
 #define NTT_N 64
 
 // Number of supported modulus layers
-#define NTT_NUM_LAYERS 7
+#define NTT_NUM_LAYERS 8
 
 // Layer indices for easy access
 #define NTT_LAYER_257        0
@@ -17,6 +17,7 @@
 #define NTT_LAYER_65537      4
 #define NTT_LAYER_786433     5
 #define NTT_LAYER_2013265921 6
+#define NTT_LAYER_4294955009 7
 
 /**
  * Forward NTT (negacyclic, constant-time)
@@ -25,7 +26,7 @@
  * Input/output in standard order (not bit-reversed).
  *
  * @param poly      Array of N=64 coefficients (modified in-place)
- * @param layer     Layer index (0-6) selecting the modulus
+ * @param layer     Layer index (0-7) selecting the modulus
  *
  * Time complexity: O(N log N) = O(384) operations
  * All operations are constant-time to prevent timing attacks.
@@ -39,7 +40,7 @@ void ntt64_forward(uint32_t poly[NTT_N], int layer);
  * Input/output in standard order (not bit-reversed).
  *
  * @param poly      Array of N=64 coefficients (modified in-place)
- * @param layer     Layer index (0-6) selecting the modulus
+ * @param layer     Layer index (0-7) selecting the modulus
  *
  * Time complexity: O(N log N) = O(384) operations
  * All operations are constant-time to prevent timing attacks.
@@ -55,7 +56,7 @@ void ntt64_inverse(uint32_t poly[NTT_N], int layer);
  * @param result    Output array (can be same as a or b)
  * @param a         First operand in NTT domain
  * @param b         Second operand in NTT domain
- * @param layer     Layer index (0-6) selecting the modulus
+ * @param layer     Layer index (0-7) selecting the modulus
  */
 void ntt64_pointwise_mul(uint32_t result[NTT_N],
                          const uint32_t a[NTT_N],
