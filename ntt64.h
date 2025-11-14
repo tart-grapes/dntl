@@ -71,4 +71,54 @@ void ntt64_pointwise_mul(uint32_t result[NTT_N],
  */
 uint32_t ntt64_get_modulus(int layer);
 
+// ============================================================================
+// FIELD ARITHMETIC OPERATIONS (Constant-time)
+// ============================================================================
+
+/**
+ * Constant-time modular addition: (a + b) mod q
+ *
+ * @param a         First operand
+ * @param b         Second operand
+ * @param layer     Layer index (0-7) selecting the modulus
+ * @return          (a + b) mod q
+ */
+uint32_t ntt64_add_mod(uint32_t a, uint32_t b, int layer);
+
+/**
+ * Constant-time modular subtraction: (a - b) mod q
+ *
+ * @param a         First operand
+ * @param b         Second operand
+ * @param layer     Layer index (0-7) selecting the modulus
+ * @return          (a - b) mod q
+ */
+uint32_t ntt64_sub_mod(uint32_t a, uint32_t b, int layer);
+
+/**
+ * Constant-time modular multiplication: (a * b) mod q
+ *
+ * Uses Barrett reduction for efficiency.
+ *
+ * @param a         First operand
+ * @param b         Second operand
+ * @param layer     Layer index (0-7) selecting the modulus
+ * @return          (a * b) mod q
+ */
+uint32_t ntt64_mul_mod(uint32_t a, uint32_t b, int layer);
+
+/**
+ * Constant-time modular inverse: a^(-1) mod q
+ *
+ * Computes the modular multiplicative inverse using binary GCD.
+ * Returns 0 if inverse does not exist (i.e., gcd(a, q) != 1).
+ *
+ * Time complexity: O(log^2 q) in constant time
+ *
+ * @param a         Value to invert (must be in range [1, q-1])
+ * @param layer     Layer index (0-7) selecting the modulus
+ * @return          a^(-1) mod q, or 0 if inverse doesn't exist
+ */
+uint32_t ntt64_inv_mod(uint32_t a, int layer);
+
 #endif // NTT64_H

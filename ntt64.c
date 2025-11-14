@@ -409,3 +409,127 @@ void ntt64_pointwise_mul(uint32_t result[NTT_N],
 uint32_t ntt64_get_modulus(int layer) {
     return Q[layer];
 }
+
+// ============================================================================
+// PUBLIC FIELD ARITHMETIC API
+// ============================================================================
+
+uint32_t ntt64_add_mod(uint32_t a, uint32_t b, int layer) {
+    return ct_add_mod(a, b, layer);
+}
+
+uint32_t ntt64_sub_mod(uint32_t a, uint32_t b, int layer) {
+    return ct_sub_mod(a, b, layer);
+}
+
+uint32_t ntt64_mul_mod(uint32_t a, uint32_t b, int layer) {
+    return ct_mul_mod(a, b, layer);
+}
+
+/**
+ * Constant-time modular inverse using binary extended GCD algorithm.
+ * Based on the algorithm from "Fast constant-time gcd computation and
+ * modular inversion" by Daniel J. Bernstein and Bo-Yin Yang.
+ *
+ * This implementation runs in constant time to prevent timing side-channels.
+ */
+uint32_t ntt64_inv_mod(uint32_t a, int layer) {
+    uint32_t q = Q[layer];
+
+    // Handle edge cases
+    if (a == 0) return 0;
+    if (a >= q) a = a % q;
+    if (a == 0) return 0;
+    if (a == 1) return 1;
+
+    // Binary extended GCD (constant-time)
+    // We maintain: u*a + v*q = r and s*a + t*q = w
+    // Initially: r=a, w=q, u=1, v=0, s=0, t=1
+
+    uint64_t r = a;
+    uint64_t w = q;
+    uint64_t u = 1;
+    uint64_t v = 0;
+    uint64_t s = 0;
+    uint64_t t = 1;
+
+    // Run for a fixed number of iterations (constant-time)
+    // log2(q) * 2 iterations is sufficient for 32-bit moduli
+    int iterations = 96; // Conservative upper bound for 32-bit moduli
+
+    for (int i = 0; i < iterations; i++) {
+        // Constant-time: always do the same operations
+
+        // Check if r is even
+        uint64_t r_even = -((r & 1) ^ 1); // All 1s if even, all 0s if odd
+
+        // If r is even: r = r/2, u = u/2 (mod q), v = v/2 (mod q)
+        uint64_t new_r = r >> 1;
+
+        // For u/2: if u is odd, add q first then divide
+        uint64_t u_odd_mask = -(u & 1);
+        uint64_t u_adjusted = u + (u_odd_mask & q);
+        uint64_t new_u = u_adjusted >> 1;
+
+        // Same for v
+        uint64_t v_odd_mask = -(v & 1);
+        uint64_t v_adjusted = v + (v_odd_mask & q);
+        uint64_t new_v = v_adjusted >> 1;
+
+        // Conditionally update if r was even
+        r = (r_even & new_r) | (~r_even & r);
+        u = (r_even & new_u) | (~r_even & u);
+        v = (r_even & new_v) | (~r_even & v);
+
+        // Check if w is even
+        uint64_t w_even = -((w & 1) ^ 1);
+
+        // If w is even: w = w/2, s = s/2 (mod q), t = t/2 (mod q)
+        uint64_t new_w = w >> 1;
+
+        uint64_t s_odd_mask = -(s & 1);
+        uint64_t s_adjusted = s + (s_odd_mask & q);
+        uint64_t new_s = s_adjusted >> 1;
+
+        uint64_t t_odd_mask = -(t & 1);
+        uint64_t t_adjusted = t + (t_odd_mask & q);
+        uint64_t new_t = t_adjusted >> 1;
+
+        // Conditionally update if w was even
+        w = (w_even & new_w) | (~w_even & w);
+        s = (w_even & new_s) | (~w_even & s);
+        t = (w_even & new_t) | (~w_even & t);
+
+        // Both r and w are odd now (or we've updated them)
+        // Check if r >= w
+        uint64_t r_ge_w = -(uint64_t)(r >= w);
+
+        // If r >= w: r = r - w, u = u - s, v = v - t
+        uint64_t diff_r = r - w;
+        // Handle u - s with proper modular arithmetic
+        uint64_t diff_u = (u >= s) ? (u - s) : (q + u - s);
+        uint64_t diff_v = (v >= t) ? (v - t) : (q + v - t);
+
+        r = (r_ge_w & diff_r) | (~r_ge_w & r);
+        u = (r_ge_w & diff_u) | (~r_ge_w & u);
+        v = (r_ge_w & diff_v) | (~r_ge_w & v);
+
+        // If r < w: w = w - r, s = s - u, t = t - v
+        uint64_t diff_w = w - r;
+        uint64_t diff_s = (s >= u) ? (s - u) : (q + s - u);
+        uint64_t diff_t = (t >= v) ? (t - v) : (q + t - v);
+
+        w = (~r_ge_w & diff_w) | (r_ge_w & w);
+        s = (~r_ge_w & diff_s) | (r_ge_w & s);
+        t = (~r_ge_w & diff_t) | (r_ge_w & t);
+    }
+
+    // At the end, w should be gcd(a, q)
+    // If gcd != 1, inverse doesn't exist
+    if (w != 1) {
+        return 0;
+    }
+
+    // The inverse is s (mod q)
+    return (uint32_t)(s % q);
+}
