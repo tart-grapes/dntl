@@ -1,0 +1,80 @@
+# Makefile for NTT64 SIMD implementations
+# Usage:
+#   make -f Makefile.simd test_scalar     # Build scalar-only version
+#   make -f Makefile.simd test_avx2       # Build AVX2 version (x86-64 only)
+#   make -f Makefile.simd test_neon       # Build NEON version (ARM only)
+#   make -f Makefile.simd test_auto       # Build with runtime dispatch
+#   make -f Makefile.simd benchmark       # Run all benchmarks
+
+CC = gcc
+CFLAGS = -Wall -Wextra -O3 -march=native
+LDFLAGS =
+
+# Source files
+COMMON_SRC = ntt64.c
+DISPATCH_SRC = ntt64_dispatch.c
+AVX2_SRC = ntt64_avx2.c
+NEON_SRC = ntt64_neon.c
+
+# Object files
+COMMON_OBJ = ntt64.o
+DISPATCH_OBJ = ntt64_dispatch.o
+AVX2_OBJ = ntt64_avx2.o
+NEON_OBJ = ntt64_neon.o
+
+# Targets
+all: test_scalar test_auto
+
+# Scalar-only build (baseline)
+test_scalar: test_simd.c $(COMMON_SRC) $(DISPATCH_SRC)
+	$(CC) -Wall -Wextra -O3 -o $@ test_simd.c $(COMMON_SRC) $(DISPATCH_SRC) -I.
+
+# AVX2 build (x86-64 with AVX2)
+test_avx2: test_simd.c $(COMMON_SRC) $(AVX2_SRC) $(DISPATCH_SRC)
+	$(CC) $(CFLAGS) -mavx2 -D__AVX2__ -o $@ test_simd.c $(COMMON_SRC) $(AVX2_SRC) $(DISPATCH_SRC) -I.
+
+# NEON build (ARM with NEON)
+test_neon: test_simd.c $(COMMON_SRC) $(NEON_SRC) $(DISPATCH_SRC)
+	$(CC) $(CFLAGS) -mfpu=neon -D__ARM_NEON -o $@ test_simd.c $(COMMON_SRC) $(NEON_SRC) $(DISPATCH_SRC) -I.
+
+# Auto-dispatch build (detects AVX2/NEON at runtime)
+test_auto: test_simd.c $(COMMON_SRC) $(DISPATCH_SRC)
+	@echo "Building with auto-dispatch..."
+	@if [ "$$(uname -m)" = "x86_64" ]; then \
+		echo "  Detected x86-64, enabling AVX2"; \
+		$(CC) $(CFLAGS) -mavx2 -o $@ test_simd.c $(COMMON_SRC) $(AVX2_SRC) $(DISPATCH_SRC) -I.; \
+	elif [ "$$(uname -m)" = "aarch64" ] || [ "$$(uname -m)" = "arm64" ]; then \
+		echo "  Detected ARM64, enabling NEON"; \
+		$(CC) $(CFLAGS) -o $@ test_simd.c $(COMMON_SRC) $(NEON_SRC) $(DISPATCH_SRC) -I.; \
+	else \
+		echo "  Unknown architecture, using scalar only"; \
+		$(CC) $(CFLAGS) -o $@ test_simd.c $(COMMON_SRC) $(DISPATCH_SRC) -I.; \
+	fi
+
+# Run benchmarks
+benchmark: test_auto
+	@echo "=========================================="
+	@echo "Running SIMD performance benchmarks..."
+	@echo "=========================================="
+	./test_auto
+
+# Clean build artifacts
+clean:
+	rm -f test_scalar test_avx2 test_neon test_auto *.o
+
+# Update existing test programs to use new structure
+test_ntt64_simd: test_ntt64.c $(COMMON_SRC)
+	@if [ "$$(uname -m)" = "x86_64" ]; then \
+		$(CC) $(CFLAGS) -mavx2 -o $@ test_ntt64.c $(COMMON_SRC) $(AVX2_SRC) $(DISPATCH_SRC) -I.; \
+	else \
+		$(CC) $(CFLAGS) -o $@ test_ntt64.c $(COMMON_SRC) -I.; \
+	fi
+
+test_field_arithmetic_simd: test_field_arithmetic.c $(COMMON_SRC)
+	@if [ "$$(uname -m)" = "x86_64" ]; then \
+		$(CC) $(CFLAGS) -mavx2 -o $@ test_field_arithmetic.c $(COMMON_SRC) $(AVX2_SRC) $(DISPATCH_SRC) -I.; \
+	else \
+		$(CC) $(CFLAGS) -o $@ test_field_arithmetic.c $(COMMON_SRC) -I.; \
+	fi
+
+.PHONY: all benchmark clean

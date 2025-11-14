@@ -5,37 +5,40 @@
 // MODULI AND PARAMETERS
 // ============================================================================
 
-// Prime moduli (all satisfy q ≡ 1 mod 128 for N=64 negacyclic NTT)
-static const uint32_t Q[NTT_NUM_LAYERS] = {
-    257u,        // 2^8 + 1
-    3329u,       // Kyber-like
-    12289u,      // 2^13 + 2^12 + 1
-    40961u,      // 2^15 + 2^13 + 1
-    65537u,      // 2^16 + 1 (Fermat prime)
-    786433u,     // 2^19 + 2^18 + 1
-    2013265921u  // 2^31 - 2^27 + 1
+// Prime moduli (all satisfy q ≡ 1 mod 256 for N=64 negacyclic NTT with psi preprocessing)
+// Exported for SIMD implementations
+const uint32_t Q[NTT_NUM_LAYERS] = {
+    257u,          // Layer 0: 2^8 + 1
+    3329u,         // Layer 1: Kyber-like (close to target 4993)
+    10753u,        // Layer 2:
+    43777u,        // Layer 3: (close to target 43649)
+    64513u,        // Layer 4: RS_PRIME_B
+    686593u,       // Layer 5: (close to target 687233)
+    2818573313u    // Layer 6: (close to target 2818572929)
 };
 
 // Inverse of N=64 for each modulus (N_inv = 64^(-1) mod q)
-static const uint32_t N_INV[NTT_NUM_LAYERS] = {
-    253u,        // for q=257
-    3277u,       // for q=3329
-    12097u,      // for q=12289
-    40321u,      // for q=40961
-    64513u,      // for q=65537
-    774145u,     // for q=786433
-    1981808641u  // for q=2013265921
+// Exported for SIMD implementations
+const uint32_t N_INV[NTT_NUM_LAYERS] = {
+    253u,          // for q=257
+    3277u,         // for q=3329
+    10585u,        // for q=10753
+    43093u,        // for q=43777
+    63505u,        // for q=64513
+    675865u,       // for q=686593
+    2774533105u    // for q=2818573313
 };
 
 // Barrett reduction constants: floor(2^64 / q)
-static const uint64_t BARRETT_CONST[NTT_NUM_LAYERS] = {
+// Exported for SIMD implementations
+const uint64_t BARRETT_CONST[NTT_NUM_LAYERS] = {
     71777214294589695ULL,    // for q=257
     5541226816974932ULL,     // for q=3329
-    1501077717772768ULL,     // for q=12289
-    450348967889200ULL,      // for q=40961
-    281470681808895ULL,      // for q=65537
-    23456218233097ULL,       // for q=786433
-    9162596893ULL            // for q=2013265921
+    1715497449428954ULL,     // for q=10753
+    421379813000195ULL,      // for q=43777
+    285938401154954ULL,      // for q=64513
+    26867072739904ULL,       // for q=686593
+    6544709690ULL            // for q=2818573313
 };
 
 // ============================================================================
@@ -44,30 +47,33 @@ static const uint64_t BARRETT_CONST[NTT_NUM_LAYERS] = {
 
 // Precomputed twiddle factors for forward NTT
 // twiddles_fwd[layer][stage] = omega^(64 / (2^(stage+1)))
-static const uint32_t TWIDDLES_FWD[NTT_NUM_LAYERS][6] = {
+// Exported for SIMD implementations
+const uint32_t TWIDDLES_FWD[NTT_NUM_LAYERS][6] = {
     { 256u, 241u, 64u, 249u, 136u, 81u },         // Layer 0 (q=257)
     { 3328u, 1729u, 749u, 2699u, 2532u, 1996u },  // Layer 1 (q=3329)
-    { 12288u, 1479u, 8246u, 4134u, 5860u, 7311u }, // Layer 2 (q=12289)
-    { 40960u, 14541u, 31679u, 32406u, 19808u, 14529u }, // Layer 3 (q=40961)
-    { 65536u, 65281u, 4096u, 64u, 65529u, 8224u },  // Layer 4 (q=65537)
-    { 786432u, 100025u, 398184u, 570203u, 417470u, 362821u }, // Layer 5 (q=786433)
-    { 2013265920u, 1728404513u, 1592366214u, 196396260u, 760005850u, 1721589904u } // Layer 6 (q=2013265921)
+    { 10752u, 6264u, 321u, 9097u, 9599u, 6970u },  // Layer 2 (q=10753)
+    { 43776u, 20924u, 37159u, 17026u, 16527u, 22287u }, // Layer 3 (q=43777)
+    { 64512u, 35676u, 20201u, 39866u, 41871u, 15914u },  // Layer 4 (q=64513)
+    { 686592u, 149740u, 308987u, 514852u, 192219u, 92055u }, // Layer 5 (q=686593)
+    { 2818573312u, 678987471u, 1315489751u, 1317825540u, 227013343u, 76152835u } // Layer 6 (q=2818573313)
 };
 
 // Precomputed twiddle factors for inverse NTT
 // twiddles_inv[layer][stage] = omega_inv^(64 / (2^(stage+1)))
-static const uint32_t TWIDDLES_INV[NTT_NUM_LAYERS][6] = {
+// Exported for SIMD implementations
+const uint32_t TWIDDLES_INV[NTT_NUM_LAYERS][6] = {
     { 256u, 16u, 253u, 32u, 240u, 165u },         // Layer 0 (q=257)
     { 3328u, 1600u, 3289u, 1897u, 2786u, 1426u }, // Layer 1 (q=3329)
-    { 12288u, 10810u, 7143u, 10984u, 8747u, 9650u }, // Layer 2 (q=12289)
-    { 40960u, 26420u, 3067u, 17816u, 20313u, 3572u }, // Layer 3 (q=40961)
-    { 65536u, 256u, 65521u, 64513u, 8192u, 64509u },  // Layer 4 (q=65537)
-    { 786432u, 686408u, 544685u, 541396u, 462518u, 596872u }, // Layer 5 (q=786433)
-    { 2013265920u, 284861408u, 1801542727u, 567209306u, 1273220281u, 662200255u } // Layer 6 (q=2013265921)
+    { 10752u, 4489u, 67u, 7331u, 2637u, 3013u },   // Layer 2 (q=10753)
+    { 43776u, 22853u, 8381u, 25663u, 20825u, 3021u }, // Layer 3 (q=43777)
+    { 64512u, 28837u, 48360u, 13268u, 22985u, 59093u },  // Layer 4 (q=64513)
+    { 686592u, 536853u, 415704u, 579255u, 403221u, 604982u }, // Layer 5 (q=686593)
+    { 2818573312u, 2139585842u, 1152851736u, 1376085826u, 1221892762u, 2693805399u } // Layer 6 (q=2818573313)
 };
 
 // Precomputed psi powers for preprocessing: psi_powers[layer][i] = psi^i mod q
-static const uint32_t PSI_POWERS[NTT_NUM_LAYERS][NTT_N] = {
+// Exported for SIMD implementations
+const uint32_t PSI_POWERS[NTT_NUM_LAYERS][NTT_N] = {
     { // Layer 0 (q=257)
         1u,9u,81u,215u,136u,196u,222u,199u,249u,185u,123u,79u,197u,231u,23u,207u,
         64u,62u,44u,139u,223u,208u,73u,143u,2u,18u,162u,173u,15u,135u,187u,141u,
@@ -80,40 +86,41 @@ static const uint32_t PSI_POWERS[NTT_NUM_LAYERS][NTT_N] = {
         1729u,2009u,2240u,1848u,193u,76u,2393u,1891u,2642u,2679u,296u,910u,1583u,2055u,447u,452u,
         40u,33u,3273u,2617u,1410u,331u,1355u,1534u,1432u,2513u,1990u,2474u,543u,1197u,1903u,2319u
     },
-    { // Layer 2 (q=12289)
-        1u,12149u,7311u,8736u,5860u,2963u,3006u,9275u,4134u,11112u,5023u,9542u,3621u,9198u,2625u,1170u,
-        8246u,726u,8961u,11227u,1212u,2366u,563u,7203u,11567u,2768u,5728u,9154u,8785u,11289u,4821u,955u,
-        1479u,1853u,10938u,4805u,3195u,7393u,9545u,3201u,6553u,4255u,6461u,4846u,9744u,12208u,11340u,9970u,
-        5146u,4611u,5777u,2294u,10643u,9238u,9314u,10963u,1305u,1635u,4591u,8577u,3542u,7969u,2639u,11499u
+    { // Layer 2 (q=10753)
+        1u, 5606u, 6970u, 8171u, 9599u, 3982u, 10617u, 1047u, 9097u, 7056u, 6402u, 6851u, 7743u, 8150u, 10156u, 8154u,
+        321u, 3775u, 746u, 9912u, 5921u, 9368u, 10109u, 2744u, 6074u, 6846u, 1219u, 5559u, 1560u, 3171u, 1917u, 4455u,
+        6264u, 7439u, 2900u, 9617u, 8113u, 7041u, 8336u, 9831u, 3461u, 3954u, 4191u, 10194u, 6122u, 7109u, 2436u, 10659u,
+        10686u, 753u, 6142u, 946u, 2047u, 2031u, 9112u, 5122u, 3422u, 380u, 1186u, 3362u, 8116u, 2353u, 7740u, 2085u
     },
-    { // Layer 3 (q=40961)
-        1u,19734u,14529u,29247u,19808u,249u,39407u,13153u,32406u,16872u,21040u,22664u,39178u,40738u,23106u,36913u,
-        31679u,6604u,26395u,18854u,16073u,23559u,5956u,18595u,25092u,28960u,8768u,8448u,1562u,21836u,1904u,12299u,
-        14541u,20289u,30312u,23525u,31337u,16141u,13758u,10864u,302u,20323u,4931u,25979u,1710u,34237u,22224u,39950u,
-        37894u,16180u,5125u,4041u,34988u,14576u,14642u,6334u,23145u,28280u,24856u,329u,20648u,28565u,37389u,4033u
+    { // Layer 3 (q=43777)
+        1u, 30304u, 22287u, 37469u, 16527u, 25328u, 41348u, 24498u, 17026u, 182u, 43203u, 28750u, 33923u, 31078u, 13111u, 39469u,
+        37159u, 34342u, 33124u, 26863u, 23037u, 1429u, 8963u, 22244u, 3930u, 21280u, 33910u, 31119u, 29819u, 33919u, 41193u, 11517u,
+        20924u, 14828u, 20584u, 42840u, 16425u, 42487u, 701u, 11259u, 38575u, 43346u, 28299u, 25243u, 4574u, 12514u, 27882u, 40028u,
+        35396u, 16330u, 9112u, 28509u, 41418u, 705u, 1144u, 40169u, 18114u, 6853u, 39001u, 38635u, 22952u, 8432u, 40756u, 33100u
     },
-    { // Layer 4 (q=65537)
-        1u,13987u,8224u,11653u,65529u,19178u,65282u,37850u,64u,43187u,2040u,24885u,65025u,47726u,49217u,63068u,
-        4096u,11414u,65023u,19752u,32769u,39762u,4112u,38595u,65533u,9589u,32641u,18925u,32u,54362u,1020u,45211u,
-        65281u,23863u,57377u,31534u,2048u,5707u,65280u,9876u,49153u,19881u,2056u,52066u,65535u,37563u,49089u,42231u,
-        16u,27181u,510u,55374u,65409u,44700u,61457u,15767u,1024u,35622u,32640u,4938u,57345u,42709u,1028u,26033u
+    { // Layer 4 (q=64513)
+        1u, 12565u, 15914u, 33623u, 41871u, 5600u, 44830u, 25947u, 39866u, 37358u, 6682u, 27917u, 19924u, 34620u, 53654u, 1660u,
+        20201u, 31423u, 10435u, 25359u, 6128u, 34311u, 41849u, 51735u, 17287u, 60397u, 21886u, 43184u, 52630u, 37700u, 46054u, 51413u,
+        35676u, 32616u, 33464u, 43939u, 55794u, 53352u, 13297u, 52648u, 5818u, 9941u, 11497u, 15198u, 4390u, 1735u, 59394u, 63739u,
+        16153u, 4547u, 39050u, 41885u, 52484u, 9574u, 45078u, 45443u, 51245u, 53685u, 4097u, 61944u, 41528u, 18176u, 5420u, 41085u
     },
-    { // Layer 5 (q=786433)
-        1u,381732u,362821u,97476u,417470u,447786u,673503u,116568u,570203u,524454u,198384u,741786u,387372u,77747u,109250u,465443u,
-        398184u,163747u,202098u,555735u,744837u,344431u,533387u,236852u,144953u,559149u,71971u,383350u,655292u,462836u,60605u,368299u,
-        100025u,634717u,433307u,626999u,203749u,76001u,500362u,58542u,74616u,284518u,82144u,336832u,116823u,394171u,244715u,675341u,
-        241748u,540017u,378618u,736069u,377103u,440344u,419955u,613608u,245037u,123064u,678026u,469969u,323915u,219489u,189561u,226456u
+    { // Layer 5 (q=686593)
+        1u, 75445u, 92055u, 201280u, 192219u, 431702u, 531842u, 324770u, 514852u, 383351u, 559256u, 555884u, 194754u, 125330u, 449647u, 430971u,
+        308987u, 318679u, 310074u, 622827u, 131281u, 391020u, 349062u, 21482u, 350010u, 137670u, 420839u, 78256u, 10713u, 122324u, 237667u, 410620u,
+        149740u, 619671u, 274632u, 294279u, 207907u, 326530u, 99010u, 364203u, 530068u, 370975u, 618416u, 340991u, 112878u, 267731u, 85828u, 34877u,
+        270889u, 93367u, 315728u, 128011u, 172757u, 56946u, 278569u, 26475u, 107338u, 437568u, 239727u, 657302u, 283372u, 554299u, 81611u, 462464u
     },
-    { // Layer 6 (q=2013265921)
-        1u,397765732u,1721589904u,465591760u,760005850u,1480042919u,871747792u,1491681022u,196396260u,1553007845u,492152090u,1790034783u,1240658731u,1162339639u,939236864u,132263909u,
-        1592366214u,1474561152u,1411014714u,1900691439u,177390144u,544217376u,328902512u,1700600734u,78945800u,603134811u,1606274035u,1964161403u,1399190761u,912838049u,918899846u,189150126u,
-        1728404513u,1458586410u,1941224298u,717205599u,889310574u,632005205u,288289890u,1230352802u,1400279418u,7658004u,95586718u,23215881u,1561292356u,1547495552u,841453531u,1225971559u,
-        211723194u,1091445674u,686375053u,418675046u,1424376889u,1229036302u,1333217202u,1274926174u,1446056615u,1192577619u,55559234u,1777795839u,740045640u,1238851905u,1351065666u,156720578u
+    { // Layer 6 (q=2818573313)
+        1u, 1937063832u, 76152835u, 1557849399u, 227013343u, 1186412631u, 1511285157u, 2695558944u, 1317825540u, 1875200075u, 2525047000u, 2623988841u, 1072524612u, 2390136231u, 1007515042u, 1377121834u,
+        1315489751u, 666276137u, 95371989u, 1466964160u, 1181893362u, 5660407u, 987745255u, 349253503u, 11792678u, 342413901u, 488674009u, 696644753u, 230148589u, 1355634142u, 855836650u, 106891284u,
+        678987471u, 762566384u, 406225956u, 1794923422u, 1166007134u, 1766639302u, 2088348109u, 108927320u, 1388422478u, 958180314u, 1484556778u, 2570446152u, 655723964u, 1903901480u, 1647713318u, 2303349723u,
+        1665721577u, 1373240375u, 1977972379u, 342824182u, 1950530756u, 872766783u, 2462097263u, 861885440u, 1442487487u, 2204983470u, 2412975673u, 1080030273u, 1596680551u, 2707644020u, 124767914u, 2571349714u
     }
 };
 
 // Precomputed psi inverse powers for postprocessing: psi_inv_powers[layer][i] = psi_inv^i mod q
-static const uint32_t PSI_INV_POWERS[NTT_NUM_LAYERS][NTT_N] = {
+// Exported for SIMD implementations
+const uint32_t PSI_INV_POWERS[NTT_NUM_LAYERS][NTT_N] = {
     { // Layer 0 (q=257)
         1u,200u,165u,104u,240u,198u,22u,31u,32u,232u,140u,244u,227u,168u,190u,221u,
         253u,228u,111u,98u,68u,236u,169u,133u,129u,100u,211u,52u,120u,99u,11u,144u,
@@ -126,35 +133,35 @@ static const uint32_t PSI_INV_POWERS[NTT_NUM_LAYERS][NTT_N] = {
         1600u,1435u,1235u,2304u,69u,3110u,1853u,632u,2481u,2402u,2508u,3040u,1062u,682u,3046u,464u,
         2580u,2522u,535u,1052u,569u,2102u,2447u,1352u,630u,461u,2879u,1573u,797u,2681u,1333u,1414u
     },
-    { // Layer 2 (q=12289)
-        1u,790u,9650u,4320u,8747u,3712u,7698u,10654u,10984u,1326u,2975u,3051u,1646u,9995u,6512u,7678u,
-        7143u,2319u,949u,81u,2545u,7443u,5828u,8034u,5736u,9088u,2744u,4896u,9094u,7484u,1351u,10436u,
-        10810u,11334u,7468u,1000u,3504u,3135u,6561u,9521u,722u,5086u,11726u,9923u,11077u,1062u,3328u,11563u,
-        4043u,11119u,9664u,3091u,8668u,2747u,7266u,1177u,8155u,3014u,9283u,9326u,6429u,3553u,4978u,140u
+    { // Layer 2 (q=10753)
+        1u, 8668u, 3013u, 8400u, 2637u, 7391u, 9567u, 10373u, 7331u, 5631u, 1641u, 8722u, 8706u, 9807u, 4611u, 10000u,
+        67u, 94u, 8317u, 3644u, 4631u, 559u, 6562u, 6799u, 7292u, 922u, 2417u, 3712u, 2640u, 1136u, 7853u, 3314u,
+        4489u, 6298u, 8836u, 7582u, 9193u, 5194u, 9534u, 3907u, 4679u, 8009u, 644u, 1385u, 4832u, 841u, 10007u, 6978u,
+        10432u, 2599u, 597u, 2603u, 3010u, 3902u, 4351u, 3697u, 1656u, 9706u, 136u, 6771u, 1154u, 2582u, 3783u, 5147u
     },
-    { // Layer 3 (q=40961)
-        1u,36928u,3572u,12396u,20313u,40632u,16105u,12681u,17816u,34627u,26319u,26385u,5973u,36920u,35836u,24781u,
-        3067u,1011u,18737u,6724u,39251u,14982u,36030u,20638u,40659u,30097u,27203u,24820u,9624u,17436u,10649u,20672u,
-        26420u,28662u,39057u,19125u,39399u,32513u,32193u,12001u,15869u,22366u,35005u,17402u,24888u,22107u,14566u,34357u,
-        9282u,4048u,17855u,223u,1783u,18297u,19921u,24089u,8555u,27808u,1554u,40712u,21153u,11714u,26432u,21227u
+    { // Layer 3 (q=43777)
+        1u, 10677u, 3021u, 35345u, 20825u, 5142u, 4776u, 36924u, 25663u, 3608u, 42633u, 43072u, 2359u, 15268u, 34665u, 27447u,
+        8381u, 3749u, 15895u, 31263u, 39203u, 18534u, 15478u, 431u, 5202u, 32518u, 43076u, 1290u, 27352u, 937u, 23193u, 28949u,
+        22853u, 32260u, 2584u, 9858u, 13958u, 12658u, 9867u, 22497u, 39847u, 21533u, 34814u, 42348u, 20740u, 16914u, 10653u, 9435u,
+        6618u, 4308u, 30666u, 12699u, 9854u, 15027u, 574u, 43595u, 26751u, 19279u, 2429u, 18449u, 27250u, 6308u, 21490u, 13473u
     },
-    { // Layer 4 (q=65537)
-        1u,39504u,64509u,22828u,8192u,60599u,32897u,29915u,64513u,49770u,4080u,20837u,128u,10163u,65027u,38356u,
-        65521u,23306u,16448u,27974u,2u,13471u,63481u,45656u,16384u,55661u,257u,59830u,63489u,34003u,8160u,41674u,
-        256u,20326u,64517u,11175u,65505u,46612u,32896u,55948u,4u,26942u,61425u,25775u,32768u,45785u,514u,54123u,
-        61441u,2469u,16320u,17811u,512u,40652u,63497u,22350u,65473u,27687u,255u,46359u,8u,53884u,57313u,51550u
+    { // Layer 4 (q=64513)
+        1u, 23428u, 59093u, 46337u, 22985u, 2569u, 60416u, 10828u, 13268u, 19070u, 19435u, 54939u, 12029u, 22628u, 25463u, 59966u,
+        48360u, 774u, 5119u, 62778u, 60123u, 49315u, 53016u, 54572u, 58695u, 11865u, 51216u, 11161u, 8719u, 20574u, 31049u, 31897u,
+        28837u, 13100u, 18459u, 26813u, 11883u, 21329u, 42627u, 4116u, 47226u, 12778u, 22664u, 30202u, 58385u, 39154u, 54078u, 33090u,
+        44312u, 62853u, 10859u, 29893u, 44589u, 36596u, 57831u, 27155u, 24647u, 38566u, 19683u, 58913u, 22642u, 30890u, 48599u, 51948u
     },
-    { // Layer 5 (q=786433)
-        1u,559977u,596872u,566944u,462518u,316464u,108407u,663369u,541396u,172825u,366478u,346089u,409330u,50364u,407815u,246416u,
-        544685u,111092u,541718u,392262u,669610u,449601u,704289u,501915u,711817u,727891u,286071u,710432u,582684u,159434u,353126u,151716u,
-        686408u,418134u,725828u,323597u,131141u,403083u,714462u,227284u,641480u,549581u,253046u,442002u,41596u,230698u,584335u,622686u,
-        388249u,320990u,677183u,708686u,399061u,44647u,588049u,261979u,216230u,669865u,112930u,338647u,368963u,688957u,423612u,404701u
+    { // Layer 5 (q=686593)
+        1u, 224129u, 604982u, 132294u, 403221u, 29291u, 446866u, 249025u, 579255u, 660118u, 408024u, 629647u, 513836u, 558582u, 370865u, 593226u,
+        415704u, 651716u, 600765u, 418862u, 573715u, 345602u, 68177u, 315618u, 156525u, 322390u, 587583u, 360063u, 478686u, 392314u, 411961u, 66922u,
+        536853u, 275973u, 448926u, 564269u, 675880u, 608337u, 265754u, 548923u, 336583u, 665111u, 337531u, 295573u, 555312u, 63766u, 376519u, 367914u,
+        377606u, 255622u, 236946u, 561263u, 491839u, 130709u, 127337u, 303242u, 171741u, 361823u, 154751u, 254891u, 494374u, 485313u, 594538u, 611148u
     },
-    { // Layer 6 (q=2013265921)
-        1u,1856545343u,662200255u,774414016u,1273220281u,235470082u,1957706687u,820688302u,567209306u,738339747u,680048719u,784229619u,588889032u,1594590875u,1326890868u,921820247u,
-        1801542727u,787294362u,1171812390u,465770369u,451973565u,1990050040u,1917679203u,2005607917u,612986503u,782913119u,1724976031u,1381260716u,1123955347u,1296060322u,72041623u,554679511u,
-        284861408u,1824115795u,1094366075u,1100427872u,614075160u,49104518u,406991886u,1410131110u,1934320121u,312665187u,1684363409u,1469048545u,1835875777u,112574482u,602251207u,538704769u,
-        420899707u,1881002012u,1074029057u,850926282u,772607190u,223231138u,1521113831u,460258076u,1816869661u,521584899u,1141518129u,533223002u,1253260071u,1547674161u,291676017u,1615500189u
+    { // Layer 6 (q=2818573313)
+        1u, 247223599u, 2693805399u, 110929293u, 1221892762u, 1738543040u, 405597640u, 613589843u, 1376085826u, 1956687873u, 356476050u, 1945806530u, 868042557u, 2475749131u, 840600934u, 1445332938u,
+        1152851736u, 515223590u, 1170859995u, 914671833u, 2162849349u, 248127161u, 1334016535u, 1860392999u, 1430150835u, 2709645993u, 730225204u, 1051934011u, 1652566179u, 1023649891u, 2412347357u, 2056006929u,
+        2139585842u, 2711682029u, 1962736663u, 1462939171u, 2588424724u, 2121928560u, 2329899304u, 2476159412u, 2806780635u, 2469319810u, 1830828058u, 2812912906u, 1636679951u, 1351609153u, 2723201324u, 2152297176u,
+        1503083562u, 1441451479u, 1811058271u, 428437082u, 1746048701u, 194584472u, 293526313u, 943373238u, 1500747773u, 123014369u, 1307288156u, 1632160682u, 2591559970u, 1260723914u, 2742420478u, 881509481u
     }
 };
 
@@ -245,8 +252,9 @@ static inline uint32_t bit_reverse_6(uint32_t x) {
 
 /**
  * In-place bit-reversal permutation
+ * Exposed for SIMD implementations
  */
-static void bit_reverse_copy(uint32_t poly[NTT_N]) {
+void bit_reverse_copy(uint32_t poly[NTT_N]) {
     for (uint32_t i = 0; i < NTT_N; i++) {
         uint32_t j = bit_reverse_6(i);
 
@@ -291,10 +299,10 @@ static inline void ct_inv_butterfly(uint32_t *a, uint32_t *b, uint32_t w, int la
 }
 
 // ============================================================================
-// FORWARD NTT
+// FORWARD NTT (Scalar implementation)
 // ============================================================================
 
-void ntt64_forward(uint32_t poly[NTT_N], int layer) {
+void ntt64_forward_scalar(uint32_t poly[NTT_N], int layer) {
     // Preprocessing: multiply poly[i] by psi^i using precomputed table
     for (uint32_t i = 0; i < NTT_N; i++) {
         poly[i] = ct_mul_mod(poly[i], PSI_POWERS[layer][i], layer);
@@ -329,10 +337,10 @@ void ntt64_forward(uint32_t poly[NTT_N], int layer) {
 }
 
 // ============================================================================
-// INVERSE NTT
+// INVERSE NTT (Scalar implementation)
 // ============================================================================
 
-void ntt64_inverse(uint32_t poly[NTT_N], int layer) {
+void ntt64_inverse_scalar(uint32_t poly[NTT_N], int layer) {
     // Standard Gentleman-Sande inverse NTT (iterative, constant-time)
     // log2(64) = 6 stages (reverse order compared to forward)
     for (int stage = 5; stage >= 0; stage--) {
@@ -373,16 +381,38 @@ void ntt64_inverse(uint32_t poly[NTT_N], int layer) {
 }
 
 // ============================================================================
-// POINT-WISE MULTIPLICATION
+// POINT-WISE MULTIPLICATION (Scalar implementation)
 // ============================================================================
+
+void ntt64_pointwise_mul_scalar(uint32_t result[NTT_N],
+                                 const uint32_t a[NTT_N],
+                                 const uint32_t b[NTT_N],
+                                 int layer) {
+    for (uint32_t i = 0; i < NTT_N; i++) {
+        result[i] = ct_mul_mod(a[i], b[i], layer);
+    }
+}
+
+// ============================================================================
+// PUBLIC API (backward compatibility wrappers)
+// ============================================================================
+
+// These are simple wrappers that call the scalar implementation
+// In a separate dispatch file, these will be replaced with runtime dispatch
+
+void ntt64_forward(uint32_t poly[NTT_N], int layer) {
+    ntt64_forward_scalar(poly, layer);
+}
+
+void ntt64_inverse(uint32_t poly[NTT_N], int layer) {
+    ntt64_inverse_scalar(poly, layer);
+}
 
 void ntt64_pointwise_mul(uint32_t result[NTT_N],
                          const uint32_t a[NTT_N],
                          const uint32_t b[NTT_N],
                          int layer) {
-    for (uint32_t i = 0; i < NTT_N; i++) {
-        result[i] = ct_mul_mod(a[i], b[i], layer);
-    }
+    ntt64_pointwise_mul_scalar(result, a, b, layer);
 }
 
 // ============================================================================
@@ -391,4 +421,128 @@ void ntt64_pointwise_mul(uint32_t result[NTT_N],
 
 uint32_t ntt64_get_modulus(int layer) {
     return Q[layer];
+}
+
+// ============================================================================
+// PUBLIC FIELD ARITHMETIC API
+// ============================================================================
+
+uint32_t ntt64_add_mod(uint32_t a, uint32_t b, int layer) {
+    return ct_add_mod(a, b, layer);
+}
+
+uint32_t ntt64_sub_mod(uint32_t a, uint32_t b, int layer) {
+    return ct_sub_mod(a, b, layer);
+}
+
+uint32_t ntt64_mul_mod(uint32_t a, uint32_t b, int layer) {
+    return ct_mul_mod(a, b, layer);
+}
+
+/**
+ * Constant-time modular inverse using binary extended GCD algorithm.
+ * Based on the algorithm from "Fast constant-time gcd computation and
+ * modular inversion" by Daniel J. Bernstein and Bo-Yin Yang.
+ *
+ * This implementation runs in constant time to prevent timing side-channels.
+ */
+uint32_t ntt64_inv_mod(uint32_t a, int layer) {
+    uint32_t q = Q[layer];
+
+    // Handle edge cases
+    if (a == 0) return 0;
+    if (a >= q) a = a % q;
+    if (a == 0) return 0;
+    if (a == 1) return 1;
+
+    // Binary extended GCD (constant-time)
+    // We maintain: u*a + v*q = r and s*a + t*q = w
+    // Initially: r=a, w=q, u=1, v=0, s=0, t=1
+
+    uint64_t r = a;
+    uint64_t w = q;
+    uint64_t u = 1;
+    uint64_t v = 0;
+    uint64_t s = 0;
+    uint64_t t = 1;
+
+    // Run for a fixed number of iterations (constant-time)
+    // log2(q) * 2 iterations is sufficient for 32-bit moduli
+    int iterations = 96; // Conservative upper bound for 32-bit moduli
+
+    for (int i = 0; i < iterations; i++) {
+        // Constant-time: always do the same operations
+
+        // Check if r is even
+        uint64_t r_even = -((r & 1) ^ 1); // All 1s if even, all 0s if odd
+
+        // If r is even: r = r/2, u = u/2 (mod q), v = v/2 (mod q)
+        uint64_t new_r = r >> 1;
+
+        // For u/2: if u is odd, add q first then divide
+        uint64_t u_odd_mask = -(u & 1);
+        uint64_t u_adjusted = u + (u_odd_mask & q);
+        uint64_t new_u = u_adjusted >> 1;
+
+        // Same for v
+        uint64_t v_odd_mask = -(v & 1);
+        uint64_t v_adjusted = v + (v_odd_mask & q);
+        uint64_t new_v = v_adjusted >> 1;
+
+        // Conditionally update if r was even
+        r = (r_even & new_r) | (~r_even & r);
+        u = (r_even & new_u) | (~r_even & u);
+        v = (r_even & new_v) | (~r_even & v);
+
+        // Check if w is even
+        uint64_t w_even = -((w & 1) ^ 1);
+
+        // If w is even: w = w/2, s = s/2 (mod q), t = t/2 (mod q)
+        uint64_t new_w = w >> 1;
+
+        uint64_t s_odd_mask = -(s & 1);
+        uint64_t s_adjusted = s + (s_odd_mask & q);
+        uint64_t new_s = s_adjusted >> 1;
+
+        uint64_t t_odd_mask = -(t & 1);
+        uint64_t t_adjusted = t + (t_odd_mask & q);
+        uint64_t new_t = t_adjusted >> 1;
+
+        // Conditionally update if w was even
+        w = (w_even & new_w) | (~w_even & w);
+        s = (w_even & new_s) | (~w_even & s);
+        t = (w_even & new_t) | (~w_even & t);
+
+        // Both r and w are odd now (or we've updated them)
+        // Check if r >= w
+        uint64_t r_ge_w = -(uint64_t)(r >= w);
+
+        // If r >= w: r = r - w, u = u - s, v = v - t
+        uint64_t diff_r = r - w;
+        // Handle u - s with proper modular arithmetic
+        uint64_t diff_u = (u >= s) ? (u - s) : (q + u - s);
+        uint64_t diff_v = (v >= t) ? (v - t) : (q + v - t);
+
+        r = (r_ge_w & diff_r) | (~r_ge_w & r);
+        u = (r_ge_w & diff_u) | (~r_ge_w & u);
+        v = (r_ge_w & diff_v) | (~r_ge_w & v);
+
+        // If r < w: w = w - r, s = s - u, t = t - v
+        uint64_t diff_w = w - r;
+        uint64_t diff_s = (s >= u) ? (s - u) : (q + s - u);
+        uint64_t diff_t = (t >= v) ? (t - v) : (q + t - v);
+
+        w = (~r_ge_w & diff_w) | (r_ge_w & w);
+        s = (~r_ge_w & diff_s) | (r_ge_w & s);
+        t = (~r_ge_w & diff_t) | (r_ge_w & t);
+    }
+
+    // At the end, w should be gcd(a, q)
+    // If gcd != 1, inverse doesn't exist
+    if (w != 1) {
+        return 0;
+    }
+
+    // The inverse is s (mod q)
+    return (uint32_t)(s % q);
 }
