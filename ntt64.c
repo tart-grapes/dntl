@@ -6,7 +6,8 @@
 // ============================================================================
 
 // Prime moduli (all satisfy q ≡ 1 mod 128 for N=64 negacyclic NTT)
-static const uint32_t Q[NTT_NUM_LAYERS] = {
+// Exported for SIMD implementations
+const uint32_t Q[NTT_NUM_LAYERS] = {
     257u,        // 2^8 + 1
     3329u,       // Kyber-like
     12289u,      // 2^13 + 2^12 + 1
@@ -18,7 +19,8 @@ static const uint32_t Q[NTT_NUM_LAYERS] = {
 };
 
 // Inverse of N=64 for each modulus (N_inv = 64^(-1) mod q)
-static const uint32_t N_INV[NTT_NUM_LAYERS] = {
+// Exported for SIMD implementations
+const uint32_t N_INV[NTT_NUM_LAYERS] = {
     253u,        // for q=257
     3277u,       // for q=3329
     12097u,      // for q=12289
@@ -30,7 +32,8 @@ static const uint32_t N_INV[NTT_NUM_LAYERS] = {
 };
 
 // Barrett reduction constants: floor(2^64 / q)
-static const uint64_t BARRETT_CONST[NTT_NUM_LAYERS] = {
+// Exported for SIMD implementations
+const uint64_t BARRETT_CONST[NTT_NUM_LAYERS] = {
     71777214294589695ULL,    // for q=257
     5541226816974932ULL,     // for q=3329
     1501077717772768ULL,     // for q=12289
@@ -47,7 +50,8 @@ static const uint64_t BARRETT_CONST[NTT_NUM_LAYERS] = {
 
 // Precomputed twiddle factors for forward NTT
 // twiddles_fwd[layer][stage] = omega^(64 / (2^(stage+1)))
-static const uint32_t TWIDDLES_FWD[NTT_NUM_LAYERS][6] = {
+// Exported for SIMD implementations
+const uint32_t TWIDDLES_FWD[NTT_NUM_LAYERS][6] = {
     { 256u, 241u, 64u, 249u, 136u, 81u },         // Layer 0 (q=257)
     { 3328u, 1729u, 749u, 2699u, 2532u, 1996u },  // Layer 1 (q=3329)
     { 12288u, 1479u, 8246u, 4134u, 5860u, 7311u }, // Layer 2 (q=12289)
@@ -60,7 +64,8 @@ static const uint32_t TWIDDLES_FWD[NTT_NUM_LAYERS][6] = {
 
 // Precomputed twiddle factors for inverse NTT
 // twiddles_inv[layer][stage] = omega_inv^(64 / (2^(stage+1)))
-static const uint32_t TWIDDLES_INV[NTT_NUM_LAYERS][6] = {
+// Exported for SIMD implementations
+const uint32_t TWIDDLES_INV[NTT_NUM_LAYERS][6] = {
     { 256u, 16u, 253u, 32u, 240u, 165u },         // Layer 0 (q=257)
     { 3328u, 1600u, 3289u, 1897u, 2786u, 1426u }, // Layer 1 (q=3329)
     { 12288u, 10810u, 7143u, 10984u, 8747u, 9650u }, // Layer 2 (q=12289)
@@ -72,7 +77,8 @@ static const uint32_t TWIDDLES_INV[NTT_NUM_LAYERS][6] = {
 };
 
 // Precomputed psi powers for preprocessing: psi_powers[layer][i] = psi^i mod q
-static const uint32_t PSI_POWERS[NTT_NUM_LAYERS][NTT_N] = {
+// Exported for SIMD implementations
+const uint32_t PSI_POWERS[NTT_NUM_LAYERS][NTT_N] = {
     { // Layer 0 (q=257)
         1u,9u,81u,215u,136u,196u,222u,199u,249u,185u,123u,79u,197u,231u,23u,207u,
         64u,62u,44u,139u,223u,208u,73u,143u,2u,18u,162u,173u,15u,135u,187u,141u,
@@ -124,7 +130,8 @@ static const uint32_t PSI_POWERS[NTT_NUM_LAYERS][NTT_N] = {
 };
 
 // Precomputed psi inverse powers for postprocessing: psi_inv_powers[layer][i] = psi_inv^i mod q
-static const uint32_t PSI_INV_POWERS[NTT_NUM_LAYERS][NTT_N] = {
+// Exported for SIMD implementations
+const uint32_t PSI_INV_POWERS[NTT_NUM_LAYERS][NTT_N] = {
     { // Layer 0 (q=257)
         1u,200u,165u,104u,240u,198u,22u,31u,32u,232u,140u,244u,227u,168u,190u,221u,
         253u,228u,111u,98u,68u,236u,169u,133u,129u,100u,211u,52u,120u,99u,11u,144u,
@@ -262,8 +269,9 @@ static inline uint32_t bit_reverse_6(uint32_t x) {
 
 /**
  * In-place bit-reversal permutation
+ * Exposed for SIMD implementations
  */
-static void bit_reverse_copy(uint32_t poly[NTT_N]) {
+void bit_reverse_copy(uint32_t poly[NTT_N]) {
     for (uint32_t i = 0; i < NTT_N; i++) {
         uint32_t j = bit_reverse_6(i);
 
@@ -308,10 +316,10 @@ static inline void ct_inv_butterfly(uint32_t *a, uint32_t *b, uint32_t w, int la
 }
 
 // ============================================================================
-// FORWARD NTT
+// FORWARD NTT (Scalar implementation)
 // ============================================================================
 
-void ntt64_forward(uint32_t poly[NTT_N], int layer) {
+void ntt64_forward_scalar(uint32_t poly[NTT_N], int layer) {
     // Preprocessing: multiply poly[i] by psi^i using precomputed table
     for (uint32_t i = 0; i < NTT_N; i++) {
         poly[i] = ct_mul_mod(poly[i], PSI_POWERS[layer][i], layer);
@@ -346,10 +354,10 @@ void ntt64_forward(uint32_t poly[NTT_N], int layer) {
 }
 
 // ============================================================================
-// INVERSE NTT
+// INVERSE NTT (Scalar implementation)
 // ============================================================================
 
-void ntt64_inverse(uint32_t poly[NTT_N], int layer) {
+void ntt64_inverse_scalar(uint32_t poly[NTT_N], int layer) {
     // Standard Gentleman-Sande inverse NTT (iterative, constant-time)
     // log2(64) = 6 stages (reverse order compared to forward)
     for (int stage = 5; stage >= 0; stage--) {
@@ -390,16 +398,38 @@ void ntt64_inverse(uint32_t poly[NTT_N], int layer) {
 }
 
 // ============================================================================
-// POINT-WISE MULTIPLICATION
+// POINT-WISE MULTIPLICATION (Scalar implementation)
 // ============================================================================
+
+void ntt64_pointwise_mul_scalar(uint32_t result[NTT_N],
+                                 const uint32_t a[NTT_N],
+                                 const uint32_t b[NTT_N],
+                                 int layer) {
+    for (uint32_t i = 0; i < NTT_N; i++) {
+        result[i] = ct_mul_mod(a[i], b[i], layer);
+    }
+}
+
+// ============================================================================
+// PUBLIC API (backward compatibility wrappers)
+// ============================================================================
+
+// These are simple wrappers that call the scalar implementation
+// In a separate dispatch file, these will be replaced with runtime dispatch
+
+void ntt64_forward(uint32_t poly[NTT_N], int layer) {
+    ntt64_forward_scalar(poly, layer);
+}
+
+void ntt64_inverse(uint32_t poly[NTT_N], int layer) {
+    ntt64_inverse_scalar(poly, layer);
+}
 
 void ntt64_pointwise_mul(uint32_t result[NTT_N],
                          const uint32_t a[NTT_N],
                          const uint32_t b[NTT_N],
                          int layer) {
-    for (uint32_t i = 0; i < NTT_N; i++) {
-        result[i] = ct_mul_mod(a[i], b[i], layer);
-    }
+    ntt64_pointwise_mul_scalar(result, a, b, layer);
 }
 
 // ============================================================================
