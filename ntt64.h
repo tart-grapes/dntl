@@ -7,17 +7,16 @@
 #define NTT_N 64
 
 // Number of supported modulus layers
-#define NTT_NUM_LAYERS 8
+#define NTT_NUM_LAYERS 7
 
 // Layer indices for easy access
 #define NTT_LAYER_257        0
 #define NTT_LAYER_3329       1
-#define NTT_LAYER_12289      2
-#define NTT_LAYER_40961      3
+#define NTT_LAYER_10753      2
+#define NTT_LAYER_43777      3
 #define NTT_LAYER_64513      4
-#define NTT_LAYER_786433     5
-#define NTT_LAYER_2013265921 6
-#define NTT_LAYER_4294955009 7
+#define NTT_LAYER_686593     5
+#define NTT_LAYER_2818573313 6
 
 /**
  * Forward NTT (negacyclic, constant-time)
