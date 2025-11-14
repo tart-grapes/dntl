@@ -14,7 +14,7 @@
 #define NTT_LAYER_3329       1
 #define NTT_LAYER_12289      2
 #define NTT_LAYER_40961      3
-#define NTT_LAYER_65537      4
+#define NTT_LAYER_64513      4
 #define NTT_LAYER_786433     5
 #define NTT_LAYER_2013265921 6
 #define NTT_LAYER_4294955009 7
@@ -66,7 +66,7 @@ void ntt64_pointwise_mul(uint32_t result[NTT_N],
 /**
  * Get the modulus for a given layer
  *
- * @param layer     Layer index (0-6)
+ * @param layer     Layer index (0-7)
  * @return          The modulus q for that layer
  */
 uint32_t ntt64_get_modulus(int layer);
