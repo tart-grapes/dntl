@@ -19,6 +19,7 @@ norm_scaling
 dense_vector_analysis
 test_huffman
 test_compress
+test_compress_brotli
 *.o
 *.out
 *.exe
