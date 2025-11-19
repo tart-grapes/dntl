@@ -21,6 +21,7 @@ test_huffman
 test_compress
 test_compress_brotli
 test_brotli_direct
+analyze_ultra_sparse
 *.o
 *.out
 *.exe
