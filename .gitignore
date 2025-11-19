@@ -27,6 +27,7 @@ maximize_entropy_norm
 test_sparse_optimal
 compression_analysis
 test_sparse_rice
+test_norm_scaling
 *.o
 *.out
 *.exe
