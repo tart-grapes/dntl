@@ -11,6 +11,7 @@ test_neon
 test_auto
 test_ntt64_simd
 test_field_arithmetic_simd
+size_estimation
 *.o
 *.out
 *.exe
