@@ -16,6 +16,9 @@ advanced_compression
 target_256b
 norm_vs_alphabet
 norm_scaling
+dense_vector_analysis
+test_huffman
+test_compress
 *.o
 *.out
 *.exe
