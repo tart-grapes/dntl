@@ -13,6 +13,7 @@ test_ntt64_simd
 test_field_arithmetic_simd
 size_estimation
 advanced_compression
+target_256b
 *.o
 *.out
 *.exe
