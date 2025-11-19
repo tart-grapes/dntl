@@ -28,6 +28,8 @@ test_sparse_optimal
 compression_analysis
 test_sparse_rice
 test_norm_scaling
+test_gaussian_dist
+test_gaussian_simple
 *.o
 *.out
 *.exe
