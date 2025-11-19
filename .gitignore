@@ -25,6 +25,8 @@ analyze_ultra_sparse
 find_middle_ground
 maximize_entropy_norm
 test_sparse_optimal
+compression_analysis
+test_sparse_rice
 *.o
 *.out
 *.exe
