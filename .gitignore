@@ -24,6 +24,7 @@ test_brotli_direct
 analyze_ultra_sparse
 find_middle_ground
 maximize_entropy_norm
+test_sparse_optimal
 *.o
 *.out
 *.exe
