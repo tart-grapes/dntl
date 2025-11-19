@@ -15,6 +15,7 @@ size_estimation
 advanced_compression
 target_256b
 norm_vs_alphabet
+norm_scaling
 *.o
 *.out
 *.exe
