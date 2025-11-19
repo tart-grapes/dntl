@@ -30,6 +30,7 @@ test_sparse_rice
 test_norm_scaling
 test_gaussian_dist
 test_gaussian_simple
+test_adaptive_gaussian
 *.o
 *.out
 *.exe
