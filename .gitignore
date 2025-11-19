@@ -22,6 +22,7 @@ test_compress
 test_compress_brotli
 test_brotli_direct
 analyze_ultra_sparse
+find_middle_ground
 *.o
 *.out
 *.exe
