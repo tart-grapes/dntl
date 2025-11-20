@@ -36,6 +36,7 @@ analyze_sparse_s_mangled
 test_sparse_s_mangled
 analyze_s_mangled_97nz
 test_optimal_large
+analyze_compression_limit
 *.o
 *.out
 *.exe
