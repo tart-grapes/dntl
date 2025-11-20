@@ -144,7 +144,7 @@ static int br_read_rice(bit_reader_t *br, uint8_t r, uint32_t *out) {
 }
 
 /* rANS (range Asymmetric Numeral Systems) for values */
-#define ANS_L 1024  /* Lower bound for state */
+#define ANS_L 65536  /* Lower bound for state (must be >> freq total of 4096) */
 
 typedef struct {
     uint32_t state;
@@ -229,8 +229,11 @@ static int rans_encode_symbol(rans_encoder_t *enc, int symbol) {
     fprintf(stderr, "DEBUG encode: sym=%d, freq=%u, cumul=%u, state_in=0x%08x\n",
             symbol, freq, cumul, enc->state);
 
-    /* Renormalize: keep state below threshold - write bytes directly to stream */
-    uint32_t max_state = ((ANS_L >> 8) << 8) * enc->total / freq;
+    /* Renormalize: keep state below threshold */
+    /* Correct formula: state < (ANS_L / freq) * total, but we want state >= max to trigger */
+    /* So max_state = (2^32 / freq) * total (approximately) */
+    /* Simpler: max_state = ((ANS_L << 8) / freq) * total */
+    uint32_t max_state = ((ANS_L << 8) / freq) * enc->total;
     while (enc->state >= max_state) {
         uint8_t byte = enc->state & 0xFF;
         fprintf(stderr, "DEBUG encode: write renorm byte 0x%02x\n", byte);
@@ -238,8 +241,8 @@ static int rans_encode_symbol(rans_encoder_t *enc, int symbol) {
         enc->state >>= 8;
     }
 
-    /* Encode: state = (state / total) * freq + cumul + (state % total) */
-    enc->state = (enc->state / enc->total) * freq + cumul + (enc->state % enc->total);
+    /* Encode: state = total * (state / freq) + cumul + (state % freq) */
+    enc->state = enc->total * (enc->state / freq) + cumul + (enc->state % freq);
     fprintf(stderr, "DEBUG encode: state_out=0x%08x\n", enc->state);
     return 0;
 }
@@ -250,6 +253,16 @@ static int rans_flush(rans_encoder_t *enc) {
     /* Write final state (32 bits) as 4 bytes */
     for (int i = 0; i < 4; i++) {
         if (bw_write_byte(enc->bw, (enc->state >> (i * 8)) & 0xFF) < 0) {
+            free(enc->freq);
+            free(enc->cumul);
+            return -1;
+        }
+    }
+
+    /* Add padding bytes to ensure decoder has enough for renormalization */
+    /* This compensates for forward-reading timing mismatch */
+    for (int i = 0; i < 32; i++) {
+        if (bw_write_byte(enc->bw, 0x00) < 0) {
             free(enc->freq);
             free(enc->cumul);
             return -1;
@@ -592,8 +605,9 @@ int sparse_phase2_decode(const sparse_phase2_t *encoded,
 
     for (uint32_t i = 0; i < count; i++) {
         int sym_idx;
+        int is_last = (i == count - 1);
         fprintf(stderr, "DEBUG decode [%u]: state=0x%08x ", i, rans.state);
-        if (rans_decode_symbol(&rans, &sym_idx, 0) < 0) {  /* Never skip renorm */
+        if (rans_decode_symbol(&rans, &sym_idx, is_last) < 0) {
             fprintf(stderr, "FAILED\n");
             rans_free_decoder(&rans);
             free(positions);
