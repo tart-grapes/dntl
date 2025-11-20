@@ -64,6 +64,22 @@ static int bw_write_rice(bit_writer_t *bw, uint32_t value, uint8_t r) {
     return bw_write_bits(bw, rem, r);
 }
 
+static void bw_align(bit_writer_t *bw) {
+    /* Pad to next byte boundary */
+    if (bw->bit_pos > 0) {
+        bw->byte_pos++;
+        bw->bit_pos = 0;
+    }
+}
+
+static int bw_write_byte(bit_writer_t *bw, uint8_t byte) {
+    /* Write a full byte (must be byte-aligned) */
+    if (bw->bit_pos != 0) return -1;  /* Must be byte-aligned */
+    if (bw->byte_pos >= bw->capacity) return -1;
+    bw->buffer[bw->byte_pos++] = byte;
+    return 0;
+}
+
 static size_t bw_finish(bit_writer_t *bw) {
     return bw->byte_pos + (bw->bit_pos > 0 ? 1 : 0);
 }
@@ -94,6 +110,22 @@ static int br_read_bits(bit_reader_t *br, uint8_t num_bits, uint32_t *out) {
         value = (value << 1) | bit;
     }
     *out = value;
+    return 0;
+}
+
+static void br_align(bit_reader_t *br) {
+    /* Skip to next byte boundary */
+    if (br->bit_pos > 0) {
+        br->byte_pos++;
+        br->bit_pos = 0;
+    }
+}
+
+static int br_read_byte(bit_reader_t *br, uint8_t *out) {
+    /* Read a full byte (must be byte-aligned) */
+    if (br->bit_pos != 0) return -1;  /* Must be byte-aligned */
+    if (br->byte_pos >= br->size) return -1;
+    *out = br->buffer[br->byte_pos++];
     return 0;
 }
 
@@ -194,22 +226,28 @@ static int rans_encode_symbol(rans_encoder_t *enc, int symbol) {
     uint32_t freq = enc->freq[symbol];
     uint32_t cumul = enc->cumul[symbol];
 
+    fprintf(stderr, "DEBUG encode: sym=%d, freq=%u, cumul=%u, state_in=0x%08x\n",
+            symbol, freq, cumul, enc->state);
+
     /* Renormalize: keep state below threshold */
     uint32_t max_state = ((ANS_L >> 12) << 12) * enc->total / freq;
     while (enc->state >= max_state) {
-        if (bw_write_bits(enc->bw, enc->state & 0xFF, 8) < 0) return -1;
+        fprintf(stderr, "DEBUG encode: renorm write byte 0x%02x\n", enc->state & 0xFF);
+        if (bw_write_byte(enc->bw, enc->state & 0xFF) < 0) return -1;
         enc->state >>= 8;
     }
 
-    /* Encode: state = freq * (state / total) + cumul + (state % total) */
-    enc->state = ((enc->state / enc->total) * freq) + cumul + (enc->state % enc->total);
+    /* Encode: state = total * (state / freq) + cumul + (state % freq) */
+    enc->state = enc->total * (enc->state / freq) + cumul + (enc->state % freq);
+    fprintf(stderr, "DEBUG encode: state_out=0x%08x\n", enc->state);
     return 0;
 }
 
 static int rans_flush(rans_encoder_t *enc) {
-    /* Write final state (32 bits) */
+    /* Write final state (32 bits) as 4 bytes */
+    fprintf(stderr, "DEBUG flush: Final encoder state = 0x%08x\n", enc->state);
     for (int i = 0; i < 4; i++) {
-        if (bw_write_bits(enc->bw, (enc->state >> (i * 8)) & 0xFF, 8) < 0) return -1;
+        if (bw_write_byte(enc->bw, (enc->state >> (i * 8)) & 0xFF) < 0) return -1;
     }
     free(enc->freq);
     free(enc->cumul);
@@ -233,16 +271,16 @@ static int rans_init_decoder(rans_decoder_t *dec, uint32_t *freqs, int n_symbols
         dec->cumul[i + 1] = dec->total;
     }
 
-    /* Read initial state (32 bits) */
+    /* Read initial state (32 bits) as 4 bytes */
     dec->state = 0;
     for (int i = 0; i < 4; i++) {
-        uint32_t byte;
-        if (br_read_bits(br, 8, &byte) < 0) {
+        uint8_t byte;
+        if (br_read_byte(br, &byte) < 0) {
             free(dec->freq);
             free(dec->cumul);
             return -1;
         }
-        dec->state |= (byte << (i * 8));
+        dec->state |= ((uint32_t)byte << (i * 8));
     }
 
     return 0;
@@ -268,8 +306,8 @@ static int rans_decode_symbol(rans_decoder_t *dec, int *symbol) {
 
     /* Renormalize: bring state back to [ANS_L, ...) */
     while (dec->state < ANS_L) {
-        uint32_t byte;
-        if (br_read_bits(dec->br, 8, &byte) < 0) return -1;
+        uint8_t byte;
+        if (br_read_byte(dec->br, &byte) < 0) return -1;
         dec->state = (dec->state << 8) | byte;
     }
 
@@ -404,6 +442,10 @@ sparse_phase2_t* sparse_phase2_encode(const int8_t *vector, size_t dimension) {
         if (bw_write_rice(&bw, gap, r) < 0) goto error;
     }
 
+    /* Align to byte boundary before rANS stream */
+    bw_align(&bw);
+    fprintf(stderr, "DEBUG: Byte-aligned before rANS at pos=%zu\n", bw.byte_pos);
+
     /* Encode values with rANS (in reverse order) */
     rans_encoder_t rans;
     rans_init_encoder(&rans, alphabet_freqs, n_unique, &bw);
@@ -499,20 +541,37 @@ int sparse_phase2_decode(const sparse_phase2_t *encoded,
         positions[i] = pos;
     }
 
+    /* Align to byte boundary before rANS stream */
+    br_align(&br);
+    fprintf(stderr, "DEBUG: Byte-aligned before rANS decode at pos=%zu\n", br.byte_pos);
+
     /* Decode values with rANS */
+    fprintf(stderr, "DEBUG decode: count=%u, n_unique=%d\n", count, n_unique);
+    fprintf(stderr, "DEBUG decode: alphabet_freqs: ");
+    for (int i = 0; i < n_unique && i < 5; i++) {
+        fprintf(stderr, "%u ", alphabet_freqs[i]);
+    }
+    fprintf(stderr, "\n");
+
     rans_decoder_t rans;
     if (rans_init_decoder(&rans, alphabet_freqs, n_unique, &br) < 0) {
+        fprintf(stderr, "DEBUG decode: rans_init_decoder failed\n");
         free(positions);
         return -1;
     }
+    fprintf(stderr, "DEBUG decode: Initial state = 0x%08x, total=%u\n", rans.state, rans.total);
 
     for (uint32_t i = 0; i < count; i++) {
         int sym_idx;
+        fprintf(stderr, "DEBUG decode [%u]: state=0x%08x ", i, rans.state);
         if (rans_decode_symbol(&rans, &sym_idx) < 0) {
+            fprintf(stderr, "FAILED\n");
             rans_free_decoder(&rans);
             free(positions);
             return -1;
         }
+        fprintf(stderr, "-> sym=%d (val=%d), new_state=0x%08x\n",
+                sym_idx, alphabet[sym_idx], rans.state);
         vector[positions[i]] = alphabet[sym_idx];
     }
 
