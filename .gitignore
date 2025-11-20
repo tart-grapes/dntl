@@ -32,6 +32,8 @@ test_gaussian_dist
 test_gaussian_simple
 test_adaptive_gaussian
 test_dense_s_mangled
+analyze_sparse_s_mangled
+test_sparse_s_mangled
 *.o
 *.out
 *.exe
