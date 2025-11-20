@@ -39,6 +39,8 @@ test_optimal_large
 analyze_compression_limit
 test_delta
 test_ultimate
+test_phase2
+test_phase2_debug
 *.o
 *.out
 *.exe
