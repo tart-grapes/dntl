@@ -31,6 +31,7 @@ test_norm_scaling
 test_gaussian_dist
 test_gaussian_simple
 test_adaptive_gaussian
+test_dense_s_mangled
 *.o
 *.out
 *.exe
