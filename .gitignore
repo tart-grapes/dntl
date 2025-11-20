@@ -34,6 +34,7 @@ test_adaptive_gaussian
 test_dense_s_mangled
 analyze_sparse_s_mangled
 test_sparse_s_mangled
+analyze_s_mangled_97nz
 *.o
 *.out
 *.exe
