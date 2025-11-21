@@ -60,3 +60,5 @@ __pycache__/
 *.swo
 *~
 test_phase2_simple
+demo_ntt_projection
+demo_oneway_cascade
