@@ -1,153 +1,164 @@
-# Phase 2: Delta Alphabet + rANS - IN PROGRESS
+# Phase 2 rANS Implementation - Status Report
 
-## Current Status: Encoder Working, Decoder Needs Fix
+## Current State: BLOCKED AT SYMBOL 74
 
-### Implementation Complete
+### Goal
+Implement proper range Asymmetric Numeral Systems (rANS) for value encoding to achieve ~162 bytes compression (vs Phase 1's 167.5 bytes).
 
-**Files created:**
-- `sparse_phase2.h/c` - Phase 2 implementation with delta alphabet + rANS
-- `test_phase2.c` - Test suite
+### Achievements
+- ✅ Identified correct rANS encoding formula: `state = total * (state / freq) + cumul + (state % freq)`
+- ✅ Identified correct rANS decoding formula: `state = freq * (state / total) + (slot - cumul)`
+- ✅ Determined correct renormalization threshold: `max_state = ((ANS_L << 8) / freq) * total`
+- ✅ Set ANS_L = 65536 (must be >> freq total of 4096)
+- ✅ Implemented backwards buffer for proper rANS byte ordering
+- ✅ **Simple test case (3 symbols) passes 100%**
+  - Encoding: 21 bytes
+  - Decoding: Perfect reconstruction
+  - All values correct
 
-**Key changes from Phase 1:**
-1. **Replaced Huffman with rANS** for value encoding
-2. **Store frequency table** (12 bits per symbol) instead of Huffman code lengths (5 bits)
-3. **Fixed ANS_L constant**: Changed from 1024 to 4096 to match frequency table total
-4. **Proper normalization**: Frequencies normalized to sum = 4096 for efficient rANS
+### Current Blocker
+**Full test (92 symbols) consistently fails at symbol 74 out of 92**
 
-### rANS Implementation
+#### Symptom
+- Encoder produces 47 renorm bytes for 92 symbols
+- Decoder exhausts all 47 bytes by symbol 74
+- Decoder runs out of renorm bytes with 18 symbols remaining
+- Error: "renorm read FAILED (no more bytes)"
 
-**Encoder (WORKING ✓):**
-```c
-- Initialize rANS state = 4096
-- Normalize frequencies to sum = 4096
-- Encode symbols in REVERSE order (ANS requirement)
-- Renormalize when state exceeds threshold
-- Flush final 32-bit state
-```
+#### Root Cause Analysis
+The backwards buffer approach has a fundamental asymmetry when applied to longer symbol sequences. The encoder and decoder renormalization rates don't match:
 
-**Decoder (BROKEN ✗):**
-```c
-- Read frequency table from bitstream
-- Initialize state from 32 bits
-- Decode symbols in FORWARD order
-- Renormalize when state < ANS_L
-- [BUG: Decoding fails - needs investigation]
-```
+1. **Backwards buffer implementation:**
+   - Encoder collects renorm bytes in buffer during encoding (reverse order: sym 91 → 0)
+   - Encoder writes buffer in REVERSE order to stream
+   - Encoder writes final state in normal byte order
+   - Decoder reads entire stream into buffer
+   - Decoder reads state from end (last 4 bytes, little-endian)
+   - Decoder reads renorm bytes backwards from buffer
+   - Decoder decodes symbols forward (sym 0 → 91)
 
-### Test Results
+2. **The asymmetry:**
+   - **Simple case (3 symbols):** Works perfectly - encoder produces 0 renorm bytes, decoder needs 1 renorm
+   - **Complex case (92 symbols):** Fails consistently - encoder produces 47 bytes, decoder needs >47 bytes
+   - This suggests the renormalization thresholds or byte consumption logic differs between encoder/decoder
 
-```
-=== Phase 2: Delta Alphabet + rANS ===
-
-Example vector (seed 1000):
-  Non-zeros: 92 / 2048 (95.5% sparse)
-  Range: [-29, 30] (span=60)
-  Unique values: 41
-  L2 norm: 123.9
-
-Trial  1-20: ✗ Decoding failed
-
-Success rate: 0/20 (encoder works, decoder fails)
-```
-
-### Debugging History
-
-1. **Initial error**: All encodings failed
-   - **Root cause**: ANS_L = 1024 too small for 12-bit frequencies (total = 4096)
-   - **Fix**: Changed ANS_L to 4096
-   - **Result**: Encoding now works perfectly
-
-2. **Current error**: All decodings fail
-   - **Symptom**: Decoder returns -1, no successful decodes
-   - **Possible causes**:
-     - State initialization mismatch
-     - Symbol lookup logic error
-     - Renormalization condition incorrect
-     - Reading past end of bitstream
-   - **Status**: Needs investigation
+#### Debugging Attempts Made
+1. ❌ **Forward encoding + forward reading:** Timing mismatch (bytes consumed at wrong decode steps)
+2. ❌ **Reverse encoding + forward reading:** Still timing mismatch
+3. ❌ **Added 32 padding bytes:** Decoder completed but values corrupted by 0x00 bytes
+4. ✅ **Backwards buffer with reverse encoding:** Simple test (3 symbols) passes perfectly
+5. ❌ **Same backwards buffer approach:** Full test (92 symbols) fails at symbol 74
+6. ❌ **Tried formula `max_state = (ANS_L / freq) * total`:** Causes state to drop below ANS_L after renorm (invalid)
+7. ❌ **Removed skip_renorm on last symbol:** Runs out of bytes even sooner
+8. ✅ **Formula `max_state = ((ANS_L << 8) / freq) * total`:** Keeps state >= ANS_L, simple test passes
 
 ### Technical Details
 
-**Frequency normalization:**
-```c
-// Normalize raw frequencies to target sum = 4096
-// Ensures each freq >= 1 (for zero-probability symbols)
-// Adjusts for rounding errors to hit exact target
+#### File Structure (sparse_phase2.c)
+- **Lines 147-160:** `rans_encoder_t` with backwards buffer
+- **Lines 162-172:** `rans_decoder_t` with backwards buffer
+- **Lines 237-258:** `rans_encode_symbol()` - encoding with buffer collection
+- **Lines 260-292:** `rans_flush()` - write buffer in reverse + state in normal order
+- **Lines 294-351:** `rans_init_decoder()` - read all into buffer, read state from end
+- **Lines 353-401:** `rans_decode_symbol()` - decode with backwards renorm reading
+- **Lines 540-545:** Encoding loop in REVERSE order (count-1 down to 0)
+- **Lines 652-665:** Decoding loop in FORWARD order (0 to count-1)
+
+#### Test Results
+```bash
+Simple test (test_phase2_simple.c):
+✓ Encoding: 21 bytes
+✓ Decoding: SUCCESS
+✓ All 3 values correct (positions [10]=5, [100]=-3, [500]=7)
+
+Full test (test_phase2.c):
+Trial 1: Encoding ~193 bytes
+- 47 renorm bytes in buffer
+- Decoder reads all 51 bytes (47 renorm + 4 state)
+- Decoder successfully decodes symbols 0-73
+- Decoder FAILS at symbol 74: "renorm read FAILED (no more bytes)"
+- Pattern repeats identically across all 20 trials
+Success rate: 0/20
 ```
 
-**Buffer size calculation:**
-```c
-// Conservative estimate:
-// Header: 10 bytes
-// Bitfield: (range + 7) / 8 bytes
-// Freq table: (n_unique * 12 + 7) / 8 bytes
-// Positions + Values: count * 4 bytes
-max_size = 10 + (range + 7) / 8 + (n_unique * 12 + 7) / 8 + count * 4;
-```
+## Recommendation
 
-**Encoding order:**
-- Positions: Forward order (gaps encoded with Rice)
-- Values: **Reverse order** (rANS requirement)
-  - Encode: vals[count-1], vals[count-2], ..., vals[0]
-  - Decode: Gets back vals[0], vals[1], ..., vals[count-1]
+Given the persistent failure at the exact same point (symbol 74) across all trials, and significant debugging effort invested:
 
-### Next Steps to Complete Phase 2
+**Option 1: Accept Phase 1 as complete ✅ RECOMMENDED**
+- Phase 1 achieves 167.5 bytes average (vs baseline 1792 bytes)
+- This is a 90.7% compression improvement
+- Solid, working implementation with full test coverage
+- Documented and tested thoroughly
 
-1. **Debug decoder** - Add instrumentation to find where it fails:
-   - State value after init
-   - Symbol indices during decode
-   - Cumulative frequency lookups
-   - Bitstream position
+**Option 2: Continue Phase 2 debugging (High Risk)**
+- Would need to investigate why specifically symbol 74 causes failure
+- May require deep theoretical analysis of rANS algorithm
+- Could take substantial additional time with uncertain outcome
+- Risk: May hit fundamental incompatibility that can't be resolved
 
-2. **Possible fixes**:
-   - Check state byte order (little vs big endian)
-   - Verify cumulative frequency calculation
-   - Ensure slot-to-symbol mapping correct
-   - Check for off-by-one errors
+**Option 3: Alternative rANS approach (High Effort)**
+- Implement standard rANS with proper bitstream stack/queue
+- Use double-pass approach (encode to temp buffer, write reversed)
+- More complex but follows established rANS implementations
+- Would require significant refactoring
 
-3. **Alternative approach**:
-   - Reference working rANS implementation
-   - Compare against sparse_ultimate.c (also has bugs but different ones)
-   - Test with single-symbol alphabet first
+## Detailed Debugging Log
 
-### Expected Outcome (Once Fixed)
+### Formula Evolution
+1. Started with: `max_state = ((ANS_L / freq) << 8) * freq` (incorrect, reduces to `ANS_L << 8`)
+2. Tried: `max_state = (ANS_L / freq) * total` (mathematically "correct" but causes state < ANS_L)
+3. Current: `max_state = ((ANS_L << 8) / freq) * total` (empirically works for simple test)
 
-**Target:** ~162 bytes for 97 nz vectors
+### Encoding/Decoding Order Tests
+| Encoding Order | Buffer Reversal | Decode Result (3 sym) | Decode Result (92 sym) |
+|----------------|-----------------|------------------------|------------------------|
+| Forward        | No              | Wrong order            | N/A                    |
+| Reverse        | No              | Timing mismatch        | Failed early           |
+| Reverse        | Yes             | ✓ Perfect              | Failed at sym 74       |
+| Forward        | Yes             | Wrong order            | N/A                    |
 
-**Comparison:**
-- Original (sparse_optimal_large): 209 bytes
-- Phase 1 (delta alphabet): 167.5 bytes
-- Phase 2 (delta + rANS): **~162 bytes** (5 byte improvement)
+### Symbol 74 Characteristics (Trial 1)
+- Frequency distribution has 41 unique values
+- Symbol 74's specific frequency unknown (requires additional logging)
+- Consistently fails at this exact point across different random seeds
+- Suggests issue related to accumulated state/byte consumption, not specific symbol
 
-**Rationale:**
-- rANS achieves closer to theoretical entropy than Huffman
-- Typical savings: 2-5% over Huffman for similar alphabet sizes
-- Trade-off: More complex implementation, harder to debug
+## Files Modified
+- `sparse_phase2.c`: rANS implementation with backwards buffer (668 lines)
+- `test_phase2_simple.c`: 3-symbol test (**PASSING**)
+- `test_phase2.c`: 20-trial random vector test (**FAILING** at symbol 74)
+- `analyze_rans.c` through `analyze_rans5.c`: Mathematical verification tools
+- `test_formulas.c`: Formula validation
 
-### Code Quality
+## Mathematical Verification
+Created analysis tools that manually trace through rANS encoding/decoding:
+- `analyze_rans5.c`: Verified current formulas produce symmetrical encode/decode
+- 3-symbol manual trace: Encode (65536 → ... → 111396), Decode (111396 → ... → 65536)
+- Formulas mathematically correct for small cases
 
-- ✓ Modular design with separate encoder/decoder
-- ✓ Proper memory management (malloc/free)
-- ✓ Error checking throughout
-- ✓ Conservative buffer allocation
-- ✗ Decoder logic has bug (under investigation)
+## Next Steps (if continuing Phase 2)
+1. Add detailed logging specifically for symbols 70-75
+2. Compare encoder renorm byte production vs decoder consumption rates
+3. Verify state values and frequency lookups at failure point
+4. Instrument renorm threshold calculations for both encoder/decoder
+5. Investigate if issue is related to specific frequency distributions
+6. Consider consulting rANS literature for similar edge cases
+7. Test with different symbol counts (e.g., 50, 70, 80) to find failure pattern
 
-### Time Investment
+## Time Investment
+- Initial implementation: ~2 hours
+- Formula debugging: ~3 hours
+- Forward-reading timing issues: ~2 hours
+- Backwards buffer implementation: ~2 hours
+- Current debugging session: ~3 hours
+- **Total: ~12 hours**
 
-- Implementation: ~2 hours
-- Debugging: ~1 hour (ongoing)
-- **Total so far**: ~3 hours (vs 2 days budgeted)
+Phase 1 took ~6 hours and achieved 90.7% compression.
+Phase 2 has taken 12+ hours and remains blocked.
 
-Still within Phase 2 timeline, but decoder fix needed to validate compression gains.
+## Conclusion
 
-## Summary
+Phase 2 has reached a technical impasse. The simple test passing proves the rANS logic is fundamentally sound, but scaling to realistic vector sizes (92 non-zeros) exposes a subtle bug in the renormalization byte accounting that has resisted multiple debugging approaches.
 
-Phase 2 encoder is **working correctly** and successfully compresses vectors. The rANS implementation properly:
-- Normalizes frequencies
-- Maintains ANS state
-- Renormalizes during encoding
-- Flushes final state
-
-The decoder has a bug that prevents any successful decodes. Once fixed, we expect ~162 byte compression (3% improvement over Phase 1's 167.5 bytes).
-
-**Recommendation:** Fix decoder before proceeding to Phase 3/4, as all subsequent phases build on Phase 2's rANS foundation.
+**Recommendation:** Document current state, commit progress, and accept Phase 1 (167.5 bytes) as the final deliverable. The 5-byte theoretical improvement from Phase 2 doesn't justify the continued time investment given diminishing returns.
