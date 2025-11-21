@@ -14,7 +14,7 @@
 #define N 16384  // Full NTT size
 #define Q 998244353u  // NTT-friendly modulus
 #define PRIMITIVE_ROOT 3u
-#define INITIAL_VECTORS 64
+#define INITIAL_VECTORS 128  // Doubled from 64 to add one more level
 
 // ============================================================================
 // MODULAR ARITHMETIC
@@ -190,11 +190,11 @@ typedef struct {
     int num_vectors;
 } tree_level_t;
 
-static void run_convolution_tree(tree_level_t levels[7], const char *name) {
+static void run_convolution_tree(tree_level_t levels[8], const char *name) {
     printf("  %s tree: ", name);
     fflush(stdout);
 
-    for (int level = 0; level < 6; level++) {
+    for (int level = 0; level < 7; level++) {
         int dst_count = levels[level + 1].num_vectors;
 
         for (int pair = 0; pair < dst_count; pair++) {
@@ -222,11 +222,11 @@ int main(void) {
     precompute_twiddles();
     printf("✓ Twiddle factors computed\n\n");
 
-    // Allocate trees
-    tree_level_t x_tree[7], y_tree[7], z_tree[7];
-    int num_vecs[] = {64, 32, 16, 8, 4, 2, 1};
+    // Allocate trees - now with 8 levels (128→64→32→16→8→4→2→1)
+    tree_level_t x_tree[8], y_tree[8], z_tree[8];
+    int num_vecs[] = {128, 64, 32, 16, 8, 4, 2, 1};
 
-    for (int l = 0; l < 7; l++) {
+    for (int l = 0; l < 8; l++) {
         x_tree[l].num_vectors = num_vecs[l];
         y_tree[l].num_vectors = num_vecs[l];
         z_tree[l].num_vectors = num_vecs[l];
@@ -242,9 +242,9 @@ int main(void) {
         }
     }
 
-    // Initialize level 0
-    printf("Initializing 3 × 64 vectors (%d dimensions each)...\n", N);
-    for (int i = 0; i < 64; i++) {
+    // Initialize level 0 with 128 vectors
+    printf("Initializing 3 × 128 vectors (%d dimensions each)...\n", N);
+    for (int i = 0; i < 128; i++) {
         init_vector(x_tree[0].vectors[i], 1000 + i * 123);
         init_vector(y_tree[0].vectors[i], 2000 + i * 456);
         init_vector(z_tree[0].vectors[i], 3000 + i * 789);
@@ -252,15 +252,15 @@ int main(void) {
     printf("✓ Initialization complete\n\n");
 
     // Run trees
-    printf("Running convolution trees (64→32→16→8→4→2→1):\n");
+    printf("Running convolution trees (128→64→32→16→8→4→2→1):\n");
     run_convolution_tree(x_tree, "X");
     run_convolution_tree(y_tree, "Y");
     run_convolution_tree(z_tree, "Z");
     printf("\n");
 
-    uint32_t *x = x_tree[6].vectors[0];
-    uint32_t *y = y_tree[6].vectors[0];
-    uint32_t *z = z_tree[6].vectors[0];
+    uint32_t *x = x_tree[7].vectors[0];
+    uint32_t *y = y_tree[7].vectors[0];
+    uint32_t *z = z_tree[7].vectors[0];
 
     printf("Final results:\n");
     printf("  X: L2 norm = %.2f\n", compute_l2_norm(x));
@@ -345,7 +345,7 @@ int main(void) {
     // Cleanup
     free(twiddle_fwd);
     free(twiddle_inv);
-    for (int l = 0; l < 7; l++) {
+    for (int l = 0; l < 8; l++) {
         for (int i = 0; i < num_vecs[l]; i++) {
             free(x_tree[l].vectors[i]);
             free(y_tree[l].vectors[i]);
