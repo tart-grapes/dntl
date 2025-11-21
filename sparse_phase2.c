@@ -153,6 +153,10 @@ typedef struct {
     uint32_t total;
     int n_symbols;
     bit_writer_t *bw;
+    /* Buffer to collect all rANS bytes for reversing */
+    uint8_t *rans_buffer;
+    size_t rans_capacity;
+    size_t rans_pos;
 } rans_encoder_t;
 
 typedef struct {
@@ -162,6 +166,9 @@ typedef struct {
     uint32_t total;
     int n_symbols;
     bit_reader_t *br;
+    /* Buffer for backwards reading */
+    uint8_t *rans_buffer;
+    int rans_pos;  /* Current read position (decrements) */
 } rans_decoder_t;
 
 /* Normalize frequencies to fit in 12 bits (max sum = 4096) */
@@ -203,7 +210,7 @@ static void normalize_freqs(uint32_t *freqs, int n_symbols, uint32_t *norm_freqs
     }
 }
 
-static void rans_init_encoder(rans_encoder_t *enc, uint32_t *freqs, int n_symbols, bit_writer_t *bw) {
+static void rans_init_encoder(rans_encoder_t *enc, uint32_t *freqs, int n_symbols, bit_writer_t *bw, size_t max_symbols) {
     enc->state = ANS_L;
     enc->n_symbols = n_symbols;
     enc->bw = bw;
@@ -220,6 +227,11 @@ static void rans_init_encoder(rans_encoder_t *enc, uint32_t *freqs, int n_symbol
         enc->total += enc->freq[i];
         enc->cumul[i + 1] = enc->total;
     }
+
+    /* Allocate buffer for collecting rANS bytes (conservative: 20 bytes per symbol + state) */
+    enc->rans_capacity = max_symbols * 20 + 4;
+    enc->rans_buffer = malloc(enc->rans_capacity);
+    enc->rans_pos = 0;
 }
 
 static int rans_encode_symbol(rans_encoder_t *enc, int symbol) {
@@ -229,15 +241,15 @@ static int rans_encode_symbol(rans_encoder_t *enc, int symbol) {
     fprintf(stderr, "DEBUG encode: sym=%d, freq=%u, cumul=%u, state_in=0x%08x\n",
             symbol, freq, cumul, enc->state);
 
-    /* Renormalize: keep state below threshold */
-    /* Correct formula: state < (ANS_L / freq) * total, but we want state >= max to trigger */
-    /* So max_state = (2^32 / freq) * total (approximately) */
-    /* Simpler: max_state = ((ANS_L << 8) / freq) * total */
+    /* Renormalize: keep state below threshold - write to buffer */
+    /* Formula: max_state = ((ANS_L << 8) / freq) * total */
+    /* This ensures state stays >= ANS_L after outputting a byte */
     uint32_t max_state = ((ANS_L << 8) / freq) * enc->total;
     while (enc->state >= max_state) {
+        if (enc->rans_pos >= enc->rans_capacity) return -1;
         uint8_t byte = enc->state & 0xFF;
-        fprintf(stderr, "DEBUG encode: write renorm byte 0x%02x\n", byte);
-        if (bw_write_byte(enc->bw, byte) < 0) return -1;
+        enc->rans_buffer[enc->rans_pos++] = byte;
+        fprintf(stderr, "DEBUG encode: buffer renorm byte 0x%02x\n", byte);
         enc->state >>= 8;
     }
 
@@ -248,29 +260,36 @@ static int rans_encode_symbol(rans_encoder_t *enc, int symbol) {
 }
 
 static int rans_flush(rans_encoder_t *enc) {
-    fprintf(stderr, "DEBUG flush: Final state = 0x%08x\n", enc->state);
+    fprintf(stderr, "DEBUG flush: Final state = 0x%08x, %zu rans bytes in buffer\n",
+            enc->state, enc->rans_pos);
 
-    /* Write final state (32 bits) as 4 bytes */
-    for (int i = 0; i < 4; i++) {
-        if (bw_write_byte(enc->bw, (enc->state >> (i * 8)) & 0xFF) < 0) {
+    /* Write renorm bytes in REVERSE order to main stream */
+    fprintf(stderr, "DEBUG flush: Writing %zu renorm bytes in reverse\n", enc->rans_pos);
+    for (int i = (int)enc->rans_pos - 1; i >= 0; i--) {
+        if (bw_write_byte(enc->bw, enc->rans_buffer[i]) < 0) {
             free(enc->freq);
             free(enc->cumul);
+            free(enc->rans_buffer);
             return -1;
         }
     }
 
-    /* Add padding bytes to ensure decoder has enough for renormalization */
-    /* This compensates for forward-reading timing mismatch */
-    for (int i = 0; i < 32; i++) {
-        if (bw_write_byte(enc->bw, 0x00) < 0) {
+    /* Write final state in NORMAL byte order (little-endian, 4 bytes) */
+    fprintf(stderr, "DEBUG flush: Writing final state 0x%08x in normal order\n", enc->state);
+    for (int i = 0; i < 4; i++) {
+        uint8_t byte = (enc->state >> (i * 8)) & 0xFF;
+        fprintf(stderr, "DEBUG flush: state byte[%d] = 0x%02x\n", i, byte);
+        if (bw_write_byte(enc->bw, byte) < 0) {
             free(enc->freq);
             free(enc->cumul);
+            free(enc->rans_buffer);
             return -1;
         }
     }
 
     free(enc->freq);
     free(enc->cumul);
+    free(enc->rans_buffer);
     return 0;
 }
 
@@ -291,18 +310,44 @@ static int rans_init_decoder(rans_decoder_t *dec, uint32_t *freqs, int n_symbols
         dec->cumul[i + 1] = dec->total;
     }
 
-    /* Read initial state (32 bits) as 4 bytes */
-    dec->state = 0;
-    for (int i = 0; i < 4; i++) {
+    /* Read ALL remaining bytes into buffer for backwards reading */
+    size_t remaining = br->size - br->byte_pos;
+    fprintf(stderr, "DEBUG init_decoder: Reading %zu bytes into buffer\n", remaining);
+    dec->rans_buffer = malloc(remaining);
+    if (!dec->rans_buffer) {
+        free(dec->freq);
+        free(dec->cumul);
+        return -1;
+    }
+
+    for (size_t i = 0; i < remaining; i++) {
         uint8_t byte;
         if (br_read_byte(br, &byte) < 0) {
             free(dec->freq);
             free(dec->cumul);
+            free(dec->rans_buffer);
             return -1;
         }
-        dec->state |= ((uint32_t)byte << (i * 8));
+        dec->rans_buffer[i] = byte;
+    }
+
+    /* Read initial state from end (4 bytes, little-endian) */
+    if (remaining < 4) {
+        free(dec->freq);
+        free(dec->cumul);
+        free(dec->rans_buffer);
+        return -1;
+    }
+
+    dec->state = 0;
+    size_t state_pos = remaining - 4;  /* State is last 4 bytes */
+    for (int i = 0; i < 4; i++) {
+        dec->state |= ((uint32_t)dec->rans_buffer[state_pos + i] << (i * 8));
     }
     fprintf(stderr, "DEBUG init_decoder: Initial state = 0x%08x\n", dec->state);
+
+    /* Start reading renorm bytes backwards from position before state */
+    dec->rans_pos = (int)state_pos - 1;
 
     return 0;
 }
@@ -335,17 +380,18 @@ static int rans_decode_symbol(rans_decoder_t *dec, int *symbol, int skip_renorm)
     fprintf(stderr, "DEBUG decode_symbol: state 0x%08x -> 0x%08x\n",
             old_state, dec->state);
 
-    /* Renormalize: bring state back to [ANS_L, ...) */
+    /* Renormalize: bring state back to [ANS_L, ...) - read backwards from buffer */
     if (!skip_renorm) {
         while (dec->state < ANS_L) {
-            uint8_t byte;
             fprintf(stderr, "DEBUG decode_symbol: renorm needed, state=0x%08x < 0x%08x\n",
                     dec->state, ANS_L);
-            if (br_read_byte(dec->br, &byte) < 0) {
-                fprintf(stderr, "DEBUG decode_symbol: renorm read FAILED\n");
+            if (dec->rans_pos < 0) {
+                fprintf(stderr, "DEBUG decode_symbol: renorm read FAILED (no more bytes)\n");
                 return -1;
             }
-            fprintf(stderr, "DEBUG decode_symbol: renorm read byte 0x%02x\n", byte);
+            uint8_t byte = dec->rans_buffer[dec->rans_pos--];
+            fprintf(stderr, "DEBUG decode_symbol: renorm read byte 0x%02x from pos %d\n",
+                    byte, dec->rans_pos + 1);
             dec->state = (dec->state << 8) | byte;
             fprintf(stderr, "DEBUG decode_symbol: renorm state now 0x%08x\n", dec->state);
         }
@@ -360,6 +406,7 @@ static void rans_free_decoder(rans_decoder_t *dec) {
     if (dec) {
         free(dec->freq);
         free(dec->cumul);
+        free(dec->rans_buffer);
     }
 }
 
@@ -488,9 +535,9 @@ sparse_phase2_t* sparse_phase2_encode(const int8_t *vector, size_t dimension) {
     bw_align(&bw);
     fprintf(stderr, "DEBUG: Byte-aligned before rANS at pos=%zu\n", bw.byte_pos);
 
-    /* Encode values with rANS (in reverse order) */
+    /* Encode values with rANS (in REVERSE order) */
     rans_encoder_t rans;
-    rans_init_encoder(&rans, alphabet_freqs, n_unique, &bw);
+    rans_init_encoder(&rans, alphabet_freqs, n_unique, &bw, count);
 
     for (int i = count - 1; i >= 0; i--) {
         int idx = value_to_idx[(uint8_t)(vals[i] + 128)];
@@ -605,7 +652,7 @@ int sparse_phase2_decode(const sparse_phase2_t *encoded,
 
     for (uint32_t i = 0; i < count; i++) {
         int sym_idx;
-        int is_last = (i == count - 1);
+        int is_last = (i == count - 1);  /* Skip renorm on last symbol */
         fprintf(stderr, "DEBUG decode [%u]: state=0x%08x ", i, rans.state);
         if (rans_decode_symbol(&rans, &sym_idx, is_last) < 0) {
             fprintf(stderr, "FAILED\n");
