@@ -175,15 +175,15 @@ typedef struct {
     int rans_pos;  /* Current read position (decrements) */
 } rans_decoder_t;
 
-/* Normalize frequencies to fit in 12 bits (max sum = 4096) */
+/* Normalize frequencies to fit in 8 bits (max sum = 256) */
 static void normalize_freqs(uint32_t *freqs, int n_symbols, uint32_t *norm_freqs) {
     uint32_t total = 0;
     for (int i = 0; i < n_symbols; i++) {
         total += freqs[i];
     }
 
-    /* Target total: 4096 (12 bits) */
-    uint32_t target = 4096;
+    /* Target total: 256 (8 bits) - reduces overhead vs 12-bit table */
+    uint32_t target = 256;
     uint64_t sum = 0;
 
     for (int i = 0; i < n_symbols; i++) {
@@ -246,9 +246,10 @@ static int rans_encode_symbol(rans_encoder_t *enc, int symbol) {
             symbol, freq, cumul, enc->state);
 
     /* Renormalize BEFORE encoding: keep state below threshold */
-    /* Formula: max_state = ((ANS_L << 8) / freq) * total */
-    /* This is the standard rANS formula for frequency-dependent renormalization */
-    uint32_t max_state = ((ANS_L << 8) / freq) * enc->total;
+    /* Standard rANS formula: max_state = ((ANS_L >> precision_bits) << 8) * freq */
+    /* With precision_bits = 8 (total = 256 = 2^8), this becomes: */
+    /* max_state = ((ANS_L >> 8) << 8) * freq = ((2^16 >> 8) << 8) * freq = (2^8 << 8) * freq */
+    uint32_t max_state = ((ANS_L >> 8) << 8) * freq;
     while (enc->state >= max_state) {
         if (enc->rans_pos >= enc->rans_capacity) return -1;
         uint8_t byte = enc->state & 0xFF;
@@ -298,23 +299,10 @@ static int rans_flush(rans_encoder_t *enc) {
     fprintf(stderr, "DEBUG flush: Final state = 0x%08x, %zu rans bytes in buffer\n",
             enc->state, enc->rans_pos);
 
-    /* Write renorm bytes in REVERSE order to main stream */
-    fprintf(stderr, "DEBUG flush: Writing %zu renorm bytes in reverse\n", enc->rans_pos);
-    for (int i = (int)enc->rans_pos - 1; i >= 0; i--) {
+    /* Write renorm bytes in FORWARD order (decoder will read them backwards) */
+    fprintf(stderr, "DEBUG flush: Writing %zu renorm bytes in forward order\n", enc->rans_pos);
+    for (size_t i = 0; i < enc->rans_pos; i++) {
         if (bw_write_byte(enc->bw, enc->rans_buffer[i]) < 0) {
-            free(enc->freq);
-            free(enc->cumul);
-            free(enc->rans_buffer);
-            return -1;
-        }
-    }
-
-    /* Write padding bytes for decoder (before state, so decoder can access them) */
-    /* This compensates for any renorm imbalance */
-    int padding_bytes = 10;
-    fprintf(stderr, "DEBUG flush: Writing %d padding bytes\n", padding_bytes);
-    for (int p = 0; p < padding_bytes; p++) {
-        if (bw_write_byte(enc->bw, 0) < 0) {
             free(enc->freq);
             free(enc->cumul);
             free(enc->rans_buffer);
@@ -335,7 +323,7 @@ static int rans_flush(rans_encoder_t *enc) {
         }
     }
 
-    fprintf(stderr, "=== ENCODE RENORM TOTAL: %d bytes (includes 1 padding) ===\n", g_encode_renorm_count);
+    fprintf(stderr, "=== ENCODE RENORM TOTAL: %d bytes ===\n", g_encode_renorm_count);
 
     free(enc->freq);
     free(enc->cumul);
@@ -538,11 +526,11 @@ sparse_phase2_t* sparse_phase2_encode(const int8_t *vector, size_t dimension) {
     /* Conservative buffer size estimate:
      * Header: 40 bits
      * Bitfield: range bits
-     * Freq table: n_unique * 12 bits
+     * Freq table: n_unique * 8 bits
      * Positions: count * 15 bits (conservative)
-     * rANS values: count * 13 bits (conservative) + 32 bits state
+     * rANS values: count * 10 bits (conservative) + 32 bits state
      */
-    size_t max_size = 10 + (range + 7) / 8 + (n_unique * 12 + 7) / 8 + count * 4;
+    size_t max_size = 10 + (range + 7) / 8 + n_unique + count * 4;
     result->data = calloc(max_size, 1);
     if (!result->data) {
         free(result);
@@ -567,11 +555,11 @@ sparse_phase2_t* sparse_phase2_encode(const int8_t *vector, size_t dimension) {
         if (bw_write_bit(&bw, present) < 0) goto error;
     }
 
-    /* Store frequency table (normalized to 12 bits each) */
+    /* Store frequency table (normalized to 8 bits each) */
     uint32_t norm_freqs[256];
     normalize_freqs(alphabet_freqs, n_unique, norm_freqs);
     for (int i = 0; i < n_unique; i++) {
-        if (bw_write_bits(&bw, norm_freqs[i], 12) < 0) goto error;
+        if (bw_write_bits(&bw, norm_freqs[i], 8) < 0) goto error;
     }
 
     /* Rice parameter */
@@ -651,10 +639,10 @@ int sparse_phase2_decode(const sparse_phase2_t *encoded,
 
     if (n_unique == 0 || n_unique > 256) return -1;
 
-    /* Read frequency table */
+    /* Read frequency table (8 bits each) */
     for (int i = 0; i < n_unique; i++) {
         uint32_t freq;
-        if (br_read_bits(&br, 12, &freq) < 0) return -1;
+        if (br_read_bits(&br, 8, &freq) < 0) return -1;
         alphabet_freqs[i] = freq;
     }
 
