@@ -11,8 +11,8 @@
 #include <string.h>
 #include <math.h>
 
-#define N 16384  // Full NTT size
-#define Q 998244353u  // NTT-friendly modulus
+#define N 256  // Full NTT size (reduced for q=257)
+#define Q 257u  // Small NTT-friendly modulus (layer 0 from ntt64)
 #define PRIMITIVE_ROOT 3u
 #define INITIAL_VECTORS 128  // Doubled from 64 to add one more level
 
@@ -51,9 +51,9 @@ static uint32_t pow_mod(uint32_t base, uint32_t exp) {
 static uint32_t *twiddle_fwd = NULL;
 static uint32_t *twiddle_inv = NULL;
 
-static inline uint32_t bit_reverse_14(uint32_t x) {
+static inline uint32_t bit_reverse_8(uint32_t x) {
     uint32_t result = 0;
-    for (int i = 0; i < 14; i++) {
+    for (int i = 0; i < 8; i++) {  // log2(256) = 8
         result = (result << 1) | (x & 1);
         x >>= 1;
     }
@@ -81,7 +81,7 @@ static void precompute_twiddles(void) {
 
 static void bit_reverse_copy(uint32_t *dst, const uint32_t *src) {
     for (int i = 0; i < N; i++) {
-        dst[bit_reverse_14(i)] = src[i];
+        dst[bit_reverse_8(i)] = src[i];
     }
 }
 
@@ -91,7 +91,7 @@ static void ntt_forward(uint32_t *a) {
     memcpy(a, tmp, N * sizeof(uint32_t));
     free(tmp);
 
-    for (int stage = 1; stage <= 14; stage++) {
+    for (int stage = 1; stage <= 8; stage++) {  // log2(256) = 8
         int m = 1 << stage;
         int m_half = m >> 1;
         int stride = N / m;
@@ -113,7 +113,7 @@ static void ntt_inverse(uint32_t *a) {
     memcpy(a, tmp, N * sizeof(uint32_t));
     free(tmp);
 
-    for (int stage = 1; stage <= 14; stage++) {
+    for (int stage = 1; stage <= 8; stage++) {  // log2(256) = 8
         int m = 1 << stage;
         int m_half = m >> 1;
         int stride = N / m;
@@ -215,7 +215,7 @@ static void run_convolution_tree(tree_level_t levels[8], const char *name) {
 int main(void) {
     printf("\n");
     printf("╔═══════════════════════════════════════════════════════════╗\n");
-    printf("║    TRIPLE TREE with FULL 16384-POINT NTTs                ║\n");
+    printf("║    TRIPLE TREE with FULL 256-POINT NTTs (q=257)          ║\n");
     printf("╚═══════════════════════════════════════════════════════════╝\n\n");
 
     printf("Initializing full-size NTT (N=%d)...\n", N);
