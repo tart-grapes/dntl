@@ -60,3 +60,4 @@ __pycache__/
 *.swo
 *~
 test_phase2_simple
+find_ntt_primes
