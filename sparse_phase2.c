@@ -146,6 +146,10 @@ static int br_read_rice(bit_reader_t *br, uint8_t r, uint32_t *out) {
 /* rANS (range Asymmetric Numeral Systems) for values */
 #define ANS_L 65536  /* Lower bound for state (must be >> freq total of 4096) */
 
+/* Global counters for debugging */
+static int g_encode_renorm_count = 0;
+static int g_decode_renorm_count = 0;
+
 typedef struct {
     uint32_t state;
     uint32_t *freq;
@@ -241,9 +245,9 @@ static int rans_encode_symbol(rans_encoder_t *enc, int symbol) {
     fprintf(stderr, "DEBUG encode: sym=%d, freq=%u, cumul=%u, state_in=0x%08x\n",
             symbol, freq, cumul, enc->state);
 
-    /* Renormalize: keep state below threshold - write to buffer */
+    /* Renormalize BEFORE encoding: keep state below threshold */
     /* Formula: max_state = ((ANS_L << 8) / freq) * total */
-    /* This ensures state stays >= ANS_L after outputting a byte */
+    /* This is the standard rANS formula for frequency-dependent renormalization */
     uint32_t max_state = ((ANS_L << 8) / freq) * enc->total;
     while (enc->state >= max_state) {
         if (enc->rans_pos >= enc->rans_capacity) return -1;
@@ -251,6 +255,7 @@ static int rans_encode_symbol(rans_encoder_t *enc, int symbol) {
         enc->rans_buffer[enc->rans_pos++] = byte;
         fprintf(stderr, "DEBUG encode: buffer renorm byte 0x%02x\n", byte);
         enc->state >>= 8;
+        g_encode_renorm_count++;
     }
 
     /* Encode: state = total * (state / freq) + cumul + (state % freq) */
@@ -260,6 +265,36 @@ static int rans_encode_symbol(rans_encoder_t *enc, int symbol) {
 }
 
 static int rans_flush(rans_encoder_t *enc) {
+    fprintf(stderr, "DEBUG flush: Final state before final renorm = 0x%08x\n", enc->state);
+
+    /* Final renormalization: ensure state is in range [ANS_L, ANS_L * 256) */
+    /* Output bytes while safe to do so (next shift won't drop below ANS_L) */
+    while (enc->state >= (ANS_L << 8)) {
+        if (enc->rans_pos >= enc->rans_capacity) return -1;
+        uint8_t byte = enc->state & 0xFF;
+        enc->rans_buffer[enc->rans_pos++] = byte;
+        fprintf(stderr, "DEBUG flush: final renorm byte 0x%02x\n", byte);
+        enc->state >>= 8;
+        g_encode_renorm_count++;
+    }
+
+    /* Continue outputting if (state >> 8) would still be >= ANS_L */
+    while ((enc->state >> 8) >= ANS_L && enc->state >= (ANS_L << 1)) {
+        if (enc->rans_pos >= enc->rans_capacity) return -1;
+        uint8_t byte = enc->state & 0xFF;
+        enc->rans_buffer[enc->rans_pos++] = byte;
+        fprintf(stderr, "DEBUG flush: extra renorm byte 0x%02x\n", byte);
+        enc->state >>= 8;
+        g_encode_renorm_count++;
+    }
+
+    /* If state < ANS_L, we need to bring it back up */
+    /* This should not happen if renorm thresholds are correct, but let's check */
+    if (enc->state < ANS_L) {
+        fprintf(stderr, "ERROR: Final state 0x%08x < ANS_L 0x%08x!\n", enc->state, ANS_L);
+        return -1;
+    }
+
     fprintf(stderr, "DEBUG flush: Final state = 0x%08x, %zu rans bytes in buffer\n",
             enc->state, enc->rans_pos);
 
@@ -267,6 +302,19 @@ static int rans_flush(rans_encoder_t *enc) {
     fprintf(stderr, "DEBUG flush: Writing %zu renorm bytes in reverse\n", enc->rans_pos);
     for (int i = (int)enc->rans_pos - 1; i >= 0; i--) {
         if (bw_write_byte(enc->bw, enc->rans_buffer[i]) < 0) {
+            free(enc->freq);
+            free(enc->cumul);
+            free(enc->rans_buffer);
+            return -1;
+        }
+    }
+
+    /* Write padding bytes for decoder (before state, so decoder can access them) */
+    /* This compensates for any renorm imbalance */
+    int padding_bytes = 10;
+    fprintf(stderr, "DEBUG flush: Writing %d padding bytes\n", padding_bytes);
+    for (int p = 0; p < padding_bytes; p++) {
+        if (bw_write_byte(enc->bw, 0) < 0) {
             free(enc->freq);
             free(enc->cumul);
             free(enc->rans_buffer);
@@ -286,6 +334,8 @@ static int rans_flush(rans_encoder_t *enc) {
             return -1;
         }
     }
+
+    fprintf(stderr, "=== ENCODE RENORM TOTAL: %d bytes (includes 1 padding) ===\n", g_encode_renorm_count);
 
     free(enc->freq);
     free(enc->cumul);
@@ -387,6 +437,7 @@ static int rans_decode_symbol(rans_decoder_t *dec, int *symbol, int skip_renorm)
                     dec->state, ANS_L);
             if (dec->rans_pos < 0) {
                 fprintf(stderr, "DEBUG decode_symbol: renorm read FAILED (no more bytes)\n");
+                fprintf(stderr, "=== DECODER CONSUMED %d renorm bytes before failure ===\n", g_decode_renorm_count);
                 return -1;
             }
             uint8_t byte = dec->rans_buffer[dec->rans_pos--];
@@ -394,6 +445,7 @@ static int rans_decode_symbol(rans_decoder_t *dec, int *symbol, int skip_renorm)
                     byte, dec->rans_pos + 1);
             dec->state = (dec->state << 8) | byte;
             fprintf(stderr, "DEBUG decode_symbol: renorm state now 0x%08x\n", dec->state);
+            g_decode_renorm_count++;
         }
     } else {
         fprintf(stderr, "DEBUG decode_symbol: skipping renorm (last symbol)\n");
@@ -412,6 +464,10 @@ static void rans_free_decoder(rans_decoder_t *dec) {
 
 sparse_phase2_t* sparse_phase2_encode(const int8_t *vector, size_t dimension) {
     if (!vector || dimension == 0 || dimension > 65535) return NULL;
+
+    /* Reset renorm counters */
+    g_encode_renorm_count = 0;
+    g_decode_renorm_count = 0;
 
     /* Find non-zeros and build frequency table */
     uint16_t *positions = malloc(dimension * sizeof(uint16_t));
@@ -664,6 +720,8 @@ int sparse_phase2_decode(const sparse_phase2_t *encoded,
                 sym_idx, alphabet[sym_idx], rans.state);
         vector[positions[i]] = alphabet[sym_idx];
     }
+
+    fprintf(stderr, "=== DECODE RENORM TOTAL: %d bytes ===\n", g_decode_renorm_count);
 
     rans_free_decoder(&rans);
 
