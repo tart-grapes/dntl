@@ -64,3 +64,5 @@ demo_ntt_projection
 demo_oneway_cascade
 demo_convolution_tree
 demo_triple_tree
+ntt_16384
+demo_triple_tree_fullntt
